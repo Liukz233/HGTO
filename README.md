@@ -4,9 +4,12 @@
 
 Kangzheng Liu · Uday Kumar Punna · Leixin Ma
 
+**Paper:** arXiv — link coming soon.
+<!-- Replace the placeholder above with the arXiv abstract URL once available. -->
+
 HGTO couples a graph neural network for material density with finite-element-consistent hypergraph mechanics. Each design is optimized from a uniform density field without labeled topology data. The same formulation supports planar and spatial elasticity, irregular domains, finite deformation, and elastoplastic loading histories.
 
-![Linear topology optimization examples](docs/assets/linear_designs.png)
+![HGTO topology optimization: cantilever, half-MBB beam, and inclined load](docs/assets/linear_designs.png)
 
 ## Installation
 
@@ -68,9 +71,9 @@ HGTO paper configurations use `cuda:0`. Add `--device cpu` for CPU execution. To
 | Large-deformation cantilever and bridge | [`configs/nonlinear`](configs/nonlinear) |
 | Elastic versus plastic connection design | [`configs/nonlinear`](configs/nonlinear) |
 
-![Cantilever design under weak and strong loading](docs/assets/large_deformation.png)
+![HGTO designs and loaded shapes under weak and strong loading](docs/assets/large_deformation.png)
 
-The NTopo strong-load image is a failed intermediate iterate. The paper's nonlinear comparison uses an explicitly documented adaptation of NTopo, not native upstream nonlinear support.
+HGTO designs under weak and strong loading. Blue shows the loaded shape at the actual displacement scale; gray shows the undeformed design. The reference load is $P_0 = 0.00125$.
 
 ## Repository layout
 
