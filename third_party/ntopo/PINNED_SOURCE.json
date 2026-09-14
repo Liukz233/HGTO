@@ -1,0 +1,26 @@
+{
+  "url": "https://github.com/JonasZehn/ntopo",
+  "commit": "d3e17ca4cfb1d7a71c4c4f0c965cfcdc67d53fa9",
+  "license": "MIT",
+  "source_files": {
+    "README.md": "7a79cdf8a6daff0b193794409019f25945f767f227f8837e2b27773481900770",
+    "run.py": "c0fd354e6dd417d2df77c6ab15e86b1a7dd3fcd6030cf85c01383e7076380861",
+    "LICENSE": "64f18165c67dd50ed6b698bbfd4cb06c136905edaa94b7b9d110944013d66e3b",
+    ".gitignore": "ab941e905169eb72d3b1c99643356dd546d5068d1e52f6169870d384131e8deb",
+    "requirements.txt": "728e6b70f9a477928c462deff7a778521c5ea5771002baa6696a0470be6d5e8b",
+    "ntopo/__init__.py": "46c2b08c78fd7efc89ffaafc9fe35ed6909d8c7e40d94ac2b9611f817998b6c1",
+    "ntopo/fem_sim.py": "6a0e6f525054238287b2d21abcff129600be6a5b8fd1dabf74e933bd4fd07528",
+    "ntopo/sdf.py": "63d3a988f82c40fcac41a1e3d9e58be2f0a61f40a1ee44fd467dd21b871a65e6",
+    "ntopo/physics.py": "013e8bbe5038e1cdc64ab3480abc986e6a0e292aed657d0a57643143c348669d",
+    "ntopo/train.py": "19c0307e494d489ee2c964e54e60e51a1fa416624d31ab172835fca811c930b1",
+    "ntopo/version.py": "63e4fcda8b2f7ce75837195d8061ae6a278273dd09344fe20badd9efac5d9da6",
+    "ntopo/constraints.py": "38cc4706cc9de668ce5565eff2c6deb4fa064a04edf9f5749f9c3530b0979d58",
+    "ntopo/render.py": "34899774b8eb9ec2125dffe28106aaf637c6b6992f3b21f4669e6b07261dbee2",
+    "ntopo/models.py": "f96ed0fbc42340675328944b396d6ee9bed24cc4f35bbcaf0effc6cf561f7cd7",
+    "ntopo/monitors.py": "922fb72bbcecfaacae8fdb33a854d98e52dfd8793081936ad5318cb7ad3b3f13",
+    "ntopo/oc.py": "93c96664b2d51541f9c665d79a542d745b9f407c6c66fc098a35b1ebf134944c",
+    "ntopo/problems.py": "4696c166da38729f508a5d0423f5f8f5b58b4792f5d3127f92cedd6580f4c736",
+    "ntopo/filter.py": "1f20078689b41ce732228e43290bb7d21ec819a41b5a732e083e4d2b2bbad973",
+    "ntopo/utils.py": "8eb58564f8603fe891a7ffaf2da3b4b8a40efa2ae7e62b439068f9dc3381d34e"
+  }
+}

@@ -1,0 +1,66 @@
+category: linear3d
+method: hgto
+case:
+  family: torsion_member
+  shape:
+  - 32
+  - 24
+  - 24
+  volfrac: 0.2
+  rmin: 1.6
+hgto:
+  n_freq: 128
+  sigma: 2.0
+  hidden_dim: 128
+  seed: 0
+  stage_steps:
+  - 50
+  - 50
+  - 50
+  - 200
+  betas:
+  - 1
+  - 2
+  - 4
+  - 8
+  penalties:
+  - 1.0
+  - 2.0
+  - 3.0
+  - 3.0
+  learning_rate: 0.01
+  final_learning_rate: 0.001
+  rho_min: 0.001
+  snapshot_interval: 25
+  uniform_initialization: true
+  symmetry_axes: []
+  device: cuda:0
+  max_updates: 1000
+  early_stopping: true
+  stop_window: 10
+  stop_objective_tolerance: 0.001
+  stop_density_tolerance: 0.005
+  stop_patience: 5
+oc:
+  betas:
+  - 1.0
+  - 2.0
+  - 4.0
+  - 8.0
+  max_stage_steps: 850
+  continuation_stage_cap: 50
+  min_stage_steps: 1
+  move: 0.2
+  change_tolerance: 0.005
+  compliance_tolerance: 0.001
+  stable_steps: 5
+  snapshot_interval: 25
+  solver: pypardiso-spd
+  rho_min: 0.001
+  penalties:
+  - 1.0
+  - 2.0
+  - 3.0
+  - 3.0
+  stopping_rule: physical
+name: linear3d/torsion

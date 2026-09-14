@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hgto"
+version = "0.1.0"
+description = "Graph-based physics-informed structural topology optimization"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {file = "LICENSE"}
+authors = [
+  {name = "Kangzheng Liu"},
+  {name = "Uday Kumar Punna"},
+  {name = "Leixin Ma"},
+]
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+  "torch>=2.0",
+  "torch-geometric>=2.4",
+  "pyamg>=5.3,<6",
+  "scikit-fem==12.0.2",
+  "matplotlib>=3.7",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+dev = ["pytest>=7", "ruff>=0.11"]
+mesh = ["gmsh"]
+plot = ["scikit-image>=0.20"]
+fast-cpu = ["pypardiso"]
+gpu-sparse = ["nvidia-cudss-cu12==0.8.0.10"]
+
+[project.urls]
+Repository = "https://github.com/Liukz233/HGTO"
+Issues = "https://github.com/Liukz233/HGTO/issues"
+
+[project.scripts]
+hgto = "hgto.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["F821", "F822", "F823"]

@@ -1,0 +1,38 @@
+name: nonlinear/bridge
+category: nonlinear
+method: hgto
+case:
+  name: bridge_nh
+  physics: nh
+  load: 0.1
+hgto:
+  device: cuda:0
+  steps: 180
+  seed: 0
+  max_updates: 1000
+  hardening: 0.03
+  objective: complementary_work
+  uniform_initial: true
+  backtracking: true
+  architecture:
+    n_freq: 64
+    hidden_dim: 64
+    sigma: 2.0
+    paper_K: 1
+  learning_rate: 0.01
+  final_learning_rate: 0.001
+  tail_half_life: 20.0
+  minimum_learning_rate: 1.0e-05
+oc:
+  objective: complementary_work
+  continuation_updates: 180
+  max_updates: 1000
+  min_fixed_updates: 10
+  stopping_rule: physical
+  change_tolerance: 0.005
+  objective_tolerance: 0.001
+  stable_steps: 5
+  acceptance: fixed_parameter_descent
+  mixed_sign_update: reciprocal_linear
+  hardening: 0.03
+  tangent_backend: scipy

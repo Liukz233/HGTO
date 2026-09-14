@@ -1,0 +1,51 @@
+category: linear2d
+method: hgto
+case:
+  family: mbb
+  nx: 120
+  ny: 40
+  radius: 3.0
+  volume: 0.5
+hgto:
+  n_freq: 64
+  sigma: 2.0
+  hidden_dim: 64
+  seed: 0
+  stage_steps:
+  - 50
+  - 50
+  - 50
+  - 200
+  betas:
+  - 1
+  - 2
+  - 4
+  - 8
+  penalties:
+  - 1.0
+  - 2.0
+  - 3.0
+  - 3.0
+  device: cuda:0
+  max_updates: 1000
+  early_stopping: true
+  stop_window: 10
+  stop_objective_tolerance: 0.001
+  stop_density_tolerance: 0.005
+  stop_patience: 5
+oc:
+  penalties:
+  - 1.0
+  - 2.0
+  - 3.0
+  - 3.0
+  max_stage_steps: 850
+  continuation_stage_cap: 50
+  min_stage_steps: 1
+  change_tolerance: 0.005
+  compliance_tolerance: 0.001
+  stable_steps: 5
+  rho_min: 0.001
+  solver: pypardiso-spd
+  stopping_rule: physical
+name: linear2d/half_mbb

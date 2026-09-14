@@ -1,0 +1,141 @@
+{
+  "name": "l_bracket_domain",
+  "family": "irregular_domain",
+  "bounding_box": [
+    2.0,
+    2.0
+  ],
+  "cutout": [
+    1.0,
+    1.0,
+    2.0,
+    2.0
+  ],
+  "nominal_mesh_size": 0.025,
+  "target_volume": 0.4,
+  "filter_radius": 0.09,
+  "mesh_algorithm": "Conforming compact Cartesian Q4 mesh",
+  "supports": "Top mounting edge y=2, 0<=x<=1: ux=uy=0",
+  "loads": "Uniform downward traction on x=2, 0.8<=y<=1, resultant Fy=-1",
+  "support_bounds": [
+    [
+      0.0,
+      2.0
+    ],
+    [
+      1.0,
+      2.0
+    ]
+  ],
+  "load_bounds": [
+    [
+      2.0,
+      0.8
+    ],
+    [
+      2.0,
+      1.0
+    ]
+  ],
+  "excluded_geometry": "Upper-right unit square is absent from the mesh",
+  "n_nodes": 4961,
+  "n_elements": 4800,
+  "area": 3.0,
+  "min_element_area": 0.0006249999999996536,
+  "max_element_area": 0.0006250000000003197,
+  "load_nodes": [
+    2672,
+    2753,
+    2834,
+    2915,
+    2996,
+    3077,
+    3158,
+    3239,
+    3320
+  ],
+  "loaded_edges": [
+    [
+      2672,
+      2753
+    ],
+    [
+      2753,
+      2834
+    ],
+    [
+      2834,
+      2915
+    ],
+    [
+      2915,
+      2996
+    ],
+    [
+      2996,
+      3077
+    ],
+    [
+      3077,
+      3158
+    ],
+    [
+      3158,
+      3239
+    ],
+    [
+      3239,
+      3320
+    ]
+  ],
+  "support_nodes": [
+    4920,
+    4921,
+    4922,
+    4923,
+    4924,
+    4925,
+    4926,
+    4927,
+    4928,
+    4929,
+    4930,
+    4931,
+    4932,
+    4933,
+    4934,
+    4935,
+    4936,
+    4937,
+    4938,
+    4939,
+    4940,
+    4941,
+    4942,
+    4943,
+    4944,
+    4945,
+    4946,
+    4947,
+    4948,
+    4949,
+    4950,
+    4951,
+    4952,
+    4953,
+    4954,
+    4955,
+    4956,
+    4957,
+    4958,
+    4959,
+    4960
+  ],
+  "force_resultant": [
+    0.0,
+    -1.0
+  ],
+  "load_discretization": "Consistent line integral of uniform edge traction",
+  "prescribed_solid_elements": false,
+  "all_other_boundaries": "Traction-free"
+}

@@ -1,0 +1,25 @@
+name: nonlinear/connection_plastic
+category: nonlinear
+method: hgto
+case:
+  name: connection_j2
+  physics: j2
+  load: 0.0015
+hgto:
+  device: cuda:0
+  steps: 180
+  seed: 0
+  max_updates: 1000
+  hardening: 0.03
+  objective: terminal_work
+  uniform_initial: true
+  backtracking: true
+  architecture:
+    n_freq: 32
+    hidden_dim: 64
+    sigma: 1.0
+    paper_K: 1
+  learning_rate: 0.003
+  final_learning_rate: 0.0003
+  tail_half_life: 40.0
+  minimum_learning_rate: 1.0e-05

@@ -1,0 +1,15 @@
+{
+  "hgto.quality": "hgto.optimization",
+  "QualityConfig": "GraphOptimizerConfig",
+  "hgto.study": "hgto.linear",
+  "hgto.fem_backends": "hgto.reference",
+  "MatureOCConfig": "OCConfig",
+  "large_cantilever_v2": "cantilever_nh",
+  "large_bridge_v2": "bridge_nh",
+  "plastic_lug_v2": "connection_j2",
+  "cantilever_v3": "cantilever_3d",
+  "pedestal_v2": "four_foot_support",
+  "torsion_v2": "torsion_member",
+  "l_bracket_v2": "l_bracket_domain",
+  "perforated_bracket_v2": "perforated_bracket"
+}

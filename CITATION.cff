@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "Please cite the accompanying HGTO manuscript when using this software."
+type: software
+title: "HGTO: A Unified Graph-Based Physics-Informed Formulation for Structural Topology Optimization"
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/Liukz233/HGTO"
+authors:
+  - family-names: Liu
+    given-names: Kangzheng
+  - family-names: Punna
+    given-names: Uday Kumar
+  - family-names: Ma
+    given-names: Leixin
+preferred-citation:
+  type: unpublished
+  title: "HGTO: A Unified Graph-Based Physics-Informed Formulation for Structural Topology Optimization"
+  year: 2026
+  authors:
+    - family-names: Liu
+      given-names: Kangzheng
+    - family-names: Punna
+      given-names: Uday Kumar
+    - family-names: Ma
+      given-names: Leixin

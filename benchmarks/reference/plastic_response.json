@@ -1,0 +1,55 @@
+{
+  "objective_reduction": 0.27455121661250237,
+  "designs": [
+    {
+      "design": "elastic_j2",
+      "j2": {
+        "C": 0.0003064192701005635,
+        "residual": 1.478781542066705e-11,
+        "newton": 46,
+        "plastic_fraction_material": 0.15632054176072235,
+        "alpha_max_material": 0.013513270574400018,
+        "strain_max_material": 0.01854630855095443,
+        "strain_p99_material": 0.015431606658768632,
+        "port_displacement": 0.20427951340037567,
+        "port_displacement_over_L": 0.00851164639168232,
+        "umax_over_L": 0.008677361964044863
+      },
+      "loading_unloading": {
+        "peak_displacement": 0.20427951340037567,
+        "residual_displacement": 0.07647686975724259,
+        "residual_over_peak": 0.37437366324322735,
+        "residual_over_L": 0.003186536239885108,
+        "maximum_material_strain_full_path": 0.01854630855095443,
+        "maximum_material_alpha_full_path": 0.013513270574400018,
+        "peak_matches_optimization_relative": 0.0,
+        "max_residual": 9.003931492636444e-10
+      }
+    },
+    {
+      "design": "j2",
+      "j2": {
+        "C": 0.0002222914867009388,
+        "residual": 8.452995822895112e-10,
+        "newton": 43,
+        "plastic_fraction_material": 0.2782079646017699,
+        "alpha_max_material": 0.003397968134016449,
+        "strain_max_material": 0.005900879964119479,
+        "strain_p99_material": 0.004430753910455356,
+        "port_displacement": 0.14819432446729253,
+        "port_displacement_over_L": 0.006174763519470522,
+        "umax_over_L": 0.006359548319817895
+      },
+      "loading_unloading": {
+        "peak_displacement": 0.14819432446729253,
+        "residual_displacement": 0.01299120857715839,
+        "residual_over_peak": 0.08766333409769438,
+        "residual_over_L": 0.0005413003573815996,
+        "maximum_material_strain_full_path": 0.005900879964119479,
+        "maximum_material_alpha_full_path": 0.003397968134016449,
+        "peak_matches_optimization_relative": 0.0,
+        "max_residual": 8.452995822895112e-10
+      }
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "method": "SIMP-OC",
+    "J": 0.11064285614783516,
+    "wall_s": 418.7533094501123,
+    "volume": 0.3999999999993529,
+    "termination": "convergence",
+    "converged": true,
+    "design_updates": 179
+  },
+  {
+    "method": "HGTO",
+    "J": 0.1108596383152672,
+    "wall_s": 61.95046996278688,
+    "volume": 0.4000000000000002,
+    "termination": "converged",
+    "converged": true,
+    "design_updates": 159
+  }
+]

@@ -1,0 +1,4 @@
+tensorflow==2.19.1
+tf-keras==2.19.0
+numpy>=1.26,<2.2
+h5py>=3.11

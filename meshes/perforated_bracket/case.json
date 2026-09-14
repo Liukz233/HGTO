@@ -1,0 +1,120 @@
+{
+  "name": "perforated_bracket",
+  "family": "unstructured_mesh",
+  "bounding_box": [
+    3.0,
+    2.0
+  ],
+  "hole_center": [
+    1.5,
+    1.0
+  ],
+  "hole_radius": 0.5,
+  "nominal_mesh_size": 0.1,
+  "target_volume": 0.4,
+  "filter_radius": 0.12,
+  "mesh_algorithm": "Gmsh frontal-Delaunay triangles, conforming three-Q4 subdivision",
+  "supports": "Left mounting edge x=0, 0<=y<=2: ux=uy=0",
+  "loads": "Uniform downward traction on x=3, 0.9<=y<=1.1, resultant Fy=-1",
+  "support_bounds": [
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      2.0
+    ]
+  ],
+  "load_bounds": [
+    [
+      3.0,
+      0.9
+    ],
+    [
+      3.0,
+      1.1
+    ]
+  ],
+  "excluded_geometry": "Circular central clearance hole, traction-free boundary",
+  "n_nodes": 3984,
+  "n_elements": 3852,
+  "area": 5.219638711935487,
+  "min_element_area": 0.0007035798418102424,
+  "max_element_area": 0.002039351290258812,
+  "load_nodes": [
+    2,
+    3,
+    47,
+    1995,
+    2139
+  ],
+  "loaded_edges": [
+    [
+      2,
+      1995
+    ],
+    [
+      3,
+      2139
+    ],
+    [
+      47,
+      1995
+    ],
+    [
+      47,
+      2139
+    ]
+  ],
+  "support_nodes": [
+    0,
+    5,
+    85,
+    86,
+    87,
+    88,
+    89,
+    90,
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    100,
+    101,
+    102,
+    103,
+    1662,
+    1738,
+    1997,
+    2006,
+    2070,
+    2120,
+    2192,
+    2224,
+    2251,
+    2301,
+    2314,
+    2316,
+    2321,
+    2330,
+    3185,
+    3277,
+    3423,
+    3574,
+    3580,
+    3774
+  ],
+  "force_resultant": [
+    0.0,
+    -1.0
+  ],
+  "load_discretization": "Consistent line integral of uniform edge traction",
+  "prescribed_solid_elements": false,
+  "all_other_boundaries": "Traction-free"
+}

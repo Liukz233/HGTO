@@ -1,0 +1,38 @@
+category: linear2d
+method: hgto
+case:
+  family: cantilever
+  nx: 24
+  ny: 8
+  radius: 1.5
+  volume: 0.5
+hgto:
+  n_freq: 8
+  hidden_dim: 16
+  sigma: 2.0
+  seed: 0
+  stage_steps:
+  - 2
+  - 2
+  betas:
+  - 1.0
+  - 8.0
+  penalties:
+  - 1.0
+  - 3.0
+  device: cpu
+  max_updates: 4
+  early_stopping: true
+  stop_window: 10
+  stop_objective_tolerance: 0.001
+  stop_density_tolerance: 0.005
+  stop_patience: 5
+oc:
+  betas:
+  - 1.0
+  max_stage_steps: 3
+  min_stage_steps: 1
+  stable_steps: 1
+  rho_min: 0.001
+  solver: auto
+name: smoke/cantilever_cpu
