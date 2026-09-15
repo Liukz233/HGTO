@@ -4,8 +4,7 @@
 
 Kangzheng Liu · Uday Kumar Punna · Leixin Ma
 
-**Paper:** arXiv — link coming soon.
-<!-- Replace the placeholder above with the arXiv abstract URL once available. -->
+**Paper:** [arXiv:2609.15001](https://arxiv.org/abs/2609.15001)
 
 HGTO couples a graph neural network for material density with finite-element-consistent hypergraph mechanics. Each design is optimized from a uniform density field without labeled topology data. The same formulation supports planar and spatial elasticity, irregular domains, finite deformation, and elastoplastic loading histories.
 
@@ -111,6 +110,19 @@ The default suite uses small problems. CUDA/cuDSS and PARDISO checks run when th
 
 Please cite the accompanying manuscript:
 
-> Kangzheng Liu, Uday Kumar Punna, and Leixin Ma. *HGTO: A Unified Graph-Based Physics-Informed Formulation for Structural Topology Optimization*. 2026.
+> Kangzheng Liu, Uday Kumar Punna, and Leixin Ma. *HGTO: A Unified Graph-Based Physics-Informed Formulation for Structural Topology Optimization*. arXiv:2609.15001, 2026. [Paper](https://arxiv.org/abs/2609.15001).
+
+```bibtex
+@misc{liu2026hgto,
+  title = {HGTO: A Unified Graph-Based Physics-Informed Formulation for Structural Topology Optimization},
+  author = {Kangzheng Liu and Uday Kumar Punna and Leixin Ma},
+  year = {2026},
+  eprint = {2609.15001},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.LG},
+  doi = {10.48550/arXiv.2609.15001},
+  url = {https://arxiv.org/abs/2609.15001}
+}
+```
 
 Machine-readable citation metadata is in [CITATION.cff](CITATION.cff). HGTO is distributed under the [MIT license](LICENSE). NTopo retains its original license; see [third-party notices](THIRD_PARTY.md).

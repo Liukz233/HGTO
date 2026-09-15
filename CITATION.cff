@@ -13,7 +13,10 @@ authors:
   - family-names: Ma
     given-names: Leixin
 preferred-citation:
-  type: unpublished
+  type: article
+  journal: arXiv
+  doi: 10.48550/arXiv.2609.15001
+  url: https://arxiv.org/abs/2609.15001
   title: "HGTO: A Unified Graph-Based Physics-Informed Formulation for Structural Topology Optimization"
   year: 2026
   authors:
