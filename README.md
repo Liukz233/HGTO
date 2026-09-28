@@ -71,9 +71,9 @@ HGTO paper configurations use `cuda:0`; SIMP--OC runs on the CPU. Add `--device 
 
 The repository also contains a small-strain J2 plasticity model with two example configurations in [`configs/additional`](configs/additional); it is not part of the paper's experiments.
 
-![HGTO designs and loaded shapes under weak and strong loading](docs/assets/large_deformation.png)
+![Finite-deformation cantilever designs under weak and strong loading](docs/assets/large_deformation.png)
 
-HGTO cantilever designs under $P_0 = 0.00125$ and $10P_0$. Blue shows the loaded shape at the actual displacement scale; gray shows the undeformed design. These designs come from an earlier projection schedule that ended at $\beta = 8$. The paper's final designs continue the projection to $\beta = 32$ and are nearly discrete.
+Finite-deformation cantilever under $P_0 = 0.00125$ and $10P_0$ (paper Fig. 7). (a, b) SIMP–OC, NTopo and HGTO designs; (c, d) HGTO loaded shapes at the actual displacement scale over the undeformed design in gray; (e) change of the secant stiffness along the load path.
 
 ## Repository layout
 
