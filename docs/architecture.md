@@ -31,11 +31,16 @@ centroids + element adjacency
 - `fem/operator.py`: gather/element/scatter operators and state solution.
 - `fem/solvers/`: geometric, masked and algebraic multigrid; sparse tangent
   solvers; optional CUDA actions and cuDSS bindings.
+- `fem/mesh/tri3.py`, `linear2d/tri3_physics.py`: linear triangles for
+  unstructured meshes; the assembled stiffness is factorized by cuDSS.
 - `fem/physics/`: Neo-Hookean and J2 constitutive responses, incremental state
-  calculations, and corresponding sensitivities.
+  calculations with load bisection, and corresponding sensitivities.
 - `reference/`: separately assembled scikit-fem elasticity and linear OC.
-- `nonlinear/optimization.py`: coupled incremental mechanics and density updates.
+- `nonlinear/optimization.py`: nonlinear example definitions, incremental
+  mechanics with optional state continuation, and graph density updates.
 - `nonlinear/oc.py`: the conventional nonlinear density control.
+- `nonlinear/stationarity.py`: a projected-gradient measure recorded in the
+  nonlinear OC history.
 - `nonlinear/evaluation.py`, `response.py`: independent final response and
   common loading/unloading evaluations.
 

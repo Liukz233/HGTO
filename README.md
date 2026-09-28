@@ -6,7 +6,7 @@ Kangzheng Liu · Uday Kumar Punna · Leixin Ma
 
 **Paper:** [arXiv:2609.15001](https://arxiv.org/abs/2609.15001)
 
-HGTO couples a graph neural network for material density with finite-element-consistent hypergraph mechanics. Each design is optimized from a uniform density field without labeled topology data. The same formulation supports planar and spatial elasticity, irregular domains, finite deformation, and elastoplastic loading histories.
+HGTO couples a graph neural network for material density with finite-element-consistent hypergraph mechanics. Each design is optimized from a uniform density field without labeled topology data. The same formulation supports planar and spatial elasticity, irregular domains on quadrilateral and triangular meshes, and finite deformation.
 
 ![HGTO topology optimization: cantilever, half-MBB beam, and inclined load](docs/assets/linear_designs.png)
 
@@ -24,9 +24,9 @@ Optional components:
 
 | Extra | Purpose |
 |---|---|
-| `fast-cpu` | PARDISO solver used by the paper's linear SIMP--OC configurations |
-| `gpu-sparse` | cuDSS 0.8 for GPU nonlinear mechanics; requires CUDA 12 |
-| `mesh` | Regenerate irregular meshes with Gmsh; saved meshes are already included |
+| `fast-cpu` | PARDISO solver used by the paper's SIMP--OC configurations, linear and nonlinear |
+| `gpu-sparse` | cuDSS 0.8 for GPU nonlinear mechanics and the triangular mesh; requires CUDA 12 |
+| `mesh` | Regenerate the perforated-bracket mesh with Gmsh; all paper meshes are included |
 | `dev` | Tests and source formatting checks |
 
 For the GPU nonlinear examples and all paper baselines:
@@ -56,7 +56,7 @@ hgto run --config configs/linear2d/cantilever_120x40.yaml --output runs/cantilev
 hgto run --config configs/linear2d/cantilever_120x40.yaml --method oc --output runs/cantilever/oc
 ```
 
-HGTO paper configurations use `cuda:0`. Add `--device cpu` for CPU execution. To inspect a configuration without computing or writing results, add `--dry-run`.
+HGTO paper configurations use `cuda:0`; SIMP--OC runs on the CPU. Add `--device cpu` for CPU execution of HGTO. To inspect a configuration without computing or writing results, add `--dry-run`.
 
 ## Paper experiments
 
@@ -65,14 +65,15 @@ HGTO paper configurations use `cuda:0`. Add `--device cpu` for CPU execution. To
 | Study | Configurations |
 |---|---|
 | Standard beams and high resolution | [`configs/linear2d`](configs/linear2d) |
-| L bracket and perforated bracket | [`configs/domains`](configs/domains) |
+| L-bracket, perforated bracket, beam with reinforced openings | [`configs/domains`](configs/domains) |
 | 3D cantilever, four-foot support, torsion | [`configs/linear3d`](configs/linear3d) |
-| Large-deformation cantilever and bridge | [`configs/nonlinear`](configs/nonlinear) |
-| Elastic versus plastic connection design | [`configs/nonlinear`](configs/nonlinear) |
+| Finite-deformation cantilever ($P_0$, $10P_0$), bridge, L-bracket | [`configs/nonlinear`](configs/nonlinear) |
+
+The repository also contains a small-strain J2 plasticity model with two example configurations in [`configs/additional`](configs/additional); it is not part of the paper's experiments.
 
 ![HGTO designs and loaded shapes under weak and strong loading](docs/assets/large_deformation.png)
 
-HGTO designs under weak and strong loading. Blue shows the loaded shape at the actual displacement scale; gray shows the undeformed design. The reference load is $P_0 = 0.00125$.
+HGTO cantilever designs under $P_0 = 0.00125$ and $10P_0$. Blue shows the loaded shape at the actual displacement scale; gray shows the undeformed design. These designs come from an earlier projection schedule that ended at $\beta = 8$. The paper's final designs continue the projection to $\beta = 32$ and are nearly discrete.
 
 ## Repository layout
 
@@ -89,7 +90,7 @@ src/hgto/
   nonlinear/             Incremental mechanics, design, and response evaluation
   baselines/ntopo/       Isolated NTopo adapter
 configs/                 Named, reproducible experiment settings
-meshes/                  The two paper irregular-domain meshes
+meshes/                  The three paper irregular-domain meshes
 scripts/                 Batch reproduction and NTopo launchers
 benchmarks/reference/    Recorded paper metrics, not outputs of a fresh run
 tests/                   Mechanics, gradients, constraints, solvers and CLI checks
@@ -104,7 +105,7 @@ See [architecture](docs/architecture.md), [output files](docs/outputs.md), and [
 python -m pytest
 ```
 
-The default suite uses small problems. CUDA/cuDSS and PARDISO checks run when those optional components are available. Tests cover physical-volume gradients, independent state/sensitivity agreement, continuation and stopping, nonlinear adjoints, and the installed command-line workflow.
+The default suite uses small problems. CUDA/cuDSS and PARDISO checks run when those optional components are available. Tests cover physical-volume gradients, independent state/sensitivity agreement, triangular elements and passive regions, continuation and stopping, nonlinear adjoints and state continuation, and the installed command-line workflow.
 
 ## Citation and license
 

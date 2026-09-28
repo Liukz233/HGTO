@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hgto"
-version = "0.1.0"
+version = "1.0.0"
 description = "Graph-based physics-informed structural topology optimization"
 readme = "README.md"
 requires-python = ">=3.11"

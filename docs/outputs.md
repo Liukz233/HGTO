@@ -17,8 +17,8 @@ Linear runs also contain `geometry.npz` (`coords`, `cells`, `fixed`, `forces`)
 and `state.npy`. Nonlinear runs contain `protocol.json`, `record.json`,
 `coords.npy`, `econn.npy`, and `unit_force.npy`, together with material/state
 history fields. Final Neo-Hookean evaluation writes a `verification/` folder
-and `response.npz`. Plastic loading/unloading comparisons are written to the
-separate directory passed to `compare-plastic`.
+and `response.npz`. The J2 loading/unloading comparison of `compare-plastic`
+is written to its own output directory.
 
 `result.json` for a Neo-Hookean run reports construction + optimization +
 independent final evaluation. Plastic runs report `optimization_s`; common
