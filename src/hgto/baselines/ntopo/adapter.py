@@ -67,7 +67,7 @@ def run(
         if high_resolution:
             raise ValueError("3D high-resolution readout is not implemented.")
     elif hasattr(problem, "domain_metadata"):
-        if problem.name not in ("l_bracket_domain", "perforated_bracket"):
+        if problem.name not in ("l_bracket_domain", "perforated_bracket", "ring_beam_tri3"):
             raise ValueError("Unknown irregular-domain NTopo mapping")
         if problem.forces.shape[1] != 1 or problem.coords.shape[1] != 2:
             raise ValueError("Irregular NTopo requires one simultaneous 2D load")

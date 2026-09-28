@@ -1,4 +1,4 @@
-"""Independent Q4/Hex8 elasticity assembled by scikit-fem.
+"""Independent Tri3/Q4/Hex8 elasticity assembled by scikit-fem.
 
 No HGTO shape-function, quadrature, constitutive or element-stiffness code is
 used here.  scikit-fem supplies the mesh mapping, vector basis, quadrature,
@@ -50,6 +50,8 @@ class ScikitFEMElasticity:
                 Functional,
                 MeshHex,
                 MeshQuad,
+                MeshTri,
+                ElementTriP1,
             )
             from skfem.models.elasticity import (
                 lame_parameters,
@@ -68,8 +70,9 @@ class ScikitFEMElasticity:
         self.dimension = self.coords.shape[1] if dimension is None else dimension
         if self.dimension not in (2, 3) or self.coords.shape[1] != self.dimension:
             raise ValueError("Expected two- or three-dimensional node coordinates")
-        if self.cells.ndim != 2 or self.cells.shape[1] != 2**self.dimension:
-            raise ValueError("Expected Q4 or Hex8 connectivity")
+        tri = self.dimension == 2 and self.cells.ndim == 2 and self.cells.shape[1] == 3
+        if self.cells.ndim != 2 or (self.cells.shape[1] != 2**self.dimension and not tri):
+            raise ValueError("Expected Tri3, Q4 or Hex8 connectivity")
         if not (0 < Emin <= E0 and -0.99 < nu < 0.499 and penalty >= 1):
             raise ValueError("Invalid isotropic SIMP material parameters")
         if thickness <= 0 or (self.dimension == 3 and thickness != 1.0):
@@ -91,9 +94,9 @@ class ScikitFEMElasticity:
 
         if self.dimension == 2:
             # ElementQuad1: (0,0), (1,0), (1,1), (0,1).
-            self.corner_permutation = np.arange(4)
-            native_mesh = MeshQuad(self.coords.T, self.cells.T, sort_t=False)
-            element = ElementVector(ElementQuad1())
+            self.corner_permutation = np.arange(3 if tri else 4)
+            native_mesh = (MeshTri if tri else MeshQuad)(self.coords.T, self.cells.T, sort_t=False)
+            element = ElementVector(ElementTriP1() if tri else ElementQuad1())
             lame = plane_stress(1.0, self.nu)
         else:
             # ElementHex1: 111, 110, 101, 011, 100, 010, 001, 000.
@@ -103,9 +106,9 @@ class ScikitFEMElasticity:
             )
             element = ElementVector(ElementHex1())
             lame = lame_parameters(1.0, self.nu)
-        self.basis = Basis(native_mesh, element, intorder=3)
+        self.basis = Basis(native_mesh, element, intorder=2 if tri else 3)
         # Library-selected order three is the 2^d Gauss rule for Q1 elements.
-        if self.basis.X.shape[1] != 2**self.dimension:
+        if self.basis.X.shape[1] != (3 if tri else 2**self.dimension):
             raise RuntimeError("Unexpected scikit-fem quadrature rule")
         determinant = self.basis.mapping.detDF(self.basis.X)
         if np.any(determinant <= 0):
@@ -145,7 +148,7 @@ class ScikitFEMElasticity:
                     raise
         self.calls = 0
         self.last_residual = self.max_residual = 0.0
-        self.assembly_seconds = self.solve_seconds = 0.0
+        self.assembly_seconds = self.solve_seconds = self.sensitivity_seconds = 0.0
         self.last_energy_relative_error = 0.0
 
     @classmethod
@@ -199,6 +202,7 @@ class ScikitFEMElasticity:
             raise RuntimeError(f"Mature FEM equilibrium residual {self.last_residual:.3e}")
         # Integrating strain avoids cancellation in u_e.T K_e u_e when a
         # weakly connected cell undergoes a large nearly rigid motion.
+        sensitivity_started = time.perf_counter()
         energy = np.zeros(self.n_elements)
         for load in range(u.shape[1]):
             energy += self.thickness * self._strain_energy.elemental(
@@ -209,6 +213,7 @@ class ScikitFEMElasticity:
             abs(compliance), 1e-30
         )
         gradient = -self.penalty * (self.E0 - self.Emin) * density ** (self.penalty - 1) * energy
+        self.sensitivity_seconds += time.perf_counter() - sensitivity_started
         self.calls += 1
         return compliance, gradient, u[self.native_for_input]
 
@@ -216,7 +221,9 @@ class ScikitFEMElasticity:
         return dict(
             library="scikit-fem",
             library_version=version("scikit-fem"),
-            element="ElementQuad1" if self.dimension == 2 else "ElementHex1",
+            element=("ElementTriP1" if self.cells.shape[1] == 3 else "ElementQuad1")
+            if self.dimension == 2
+            else "ElementHex1",
             model="plane stress" if self.dimension == 2 else "3D linear elasticity",
             basis="ElementVector",
             assembly="linear_elasticity.elemental; COOData.fromlocal.tocsr",
@@ -234,6 +241,7 @@ class ScikitFEMElasticity:
             energy_relative_error=self.last_energy_relative_error,
             assembly_seconds=self.assembly_seconds,
             solve_seconds=self.solve_seconds,
+            sensitivity_seconds=self.sensitivity_seconds,
         )
 
     def close(self):

@@ -38,9 +38,21 @@ def load_problem(config):
             raise ValueError(f"Unsupported paper NTopo case: {family}")
     category, problem, _, _, original = problem_from_settings(settings, config.parent)
     if category == "domains":
-        if problem.name not in ("l_bracket_domain", "perforated_bracket"):
+        if problem.name not in ("l_bracket_domain", "perforated_bracket", "ring_beam_tri3"):
             raise ValueError(f"Unsupported paper NTopo domain: {problem.name}")
         problem.domain_metadata = original
+        if problem.name == "ring_beam_tri3":
+            import numpy as np
+
+            # Rings are native one-density constraints. Their samples enter NTopo's
+            # OC volume sum at the constrained value 1, so the rings count toward the
+            # volume fraction as in HGTO and SIMP--OC.
+            solid = np.isfinite(problem.fixed_density) & (problem.fixed_density == 1)
+            problem.domain_metadata = dict(
+                original,
+                passive_solid_elements=np.flatnonzero(solid).tolist(),
+                passive_volume="fixed",
+            )
     # The adapter uses Problem3DSpec's exact patch metadata and callable mesh API.
     return category, original if category == "linear3d" else problem, settings
 
@@ -270,6 +282,15 @@ def main(argv=None):
         stopping=stopping,
     )
     evaluation = score_final(args.output, threads=args.fem_threads, solver=args.fem_solver)
+    if getattr(problem, "fixed_density", None) is not None:
+        import numpy as np
+
+        rho = np.load(args.output / "rho.npy")
+        fixed = np.isfinite(problem.fixed_density)
+        evaluation["passive_elements"] = dict(
+            count=int(fixed.sum()),
+            max_abs_deviation=float(np.abs(rho[fixed] - problem.fixed_density[fixed]).max()),
+        )
     with (args.output / "common_fem_evaluation.json").open("x") as stream:
         json.dump(evaluation, stream, indent=2, allow_nan=False)
         stream.write("\n")

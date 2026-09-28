@@ -1,7 +1,7 @@
 """Element adjacency for the density graph.
 
-Q4 elements connect across full edges; Hex8 elements connect across full
-faces. Both edge directions are returned. Edge features store the centroid
+Q4 and Tri3 elements connect across full edges; Hex8 elements connect across
+full faces. Both edge directions are returned. Edge features store the centroid
 difference, centroid distance, and shared edge length or face area."""
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from hgto.fem.mesh.q4 import Q4Mesh
 
 # Local element edges CCW (pairs of local-node indices).
 _LOCAL_EDGES = ((0, 1), (1, 2), (2, 3), (3, 0))
+_TRI_EDGES = ((0, 1), (1, 2), (2, 0))
 
 # Local hex8 faces (cyclic quads of local-node indices, design_graph_3d).
 _LOCAL_FACES = ((0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7))
@@ -29,7 +30,7 @@ def build_element_dual_graph(mesh: Q4Mesh | Hex8Mesh) -> Dict[str, np.ndarray]:
     coords = mesh.coords
     for e in range(mesh.n_elements):
         nodes = mesh.econn[e]
-        for a, b in _LOCAL_EDGES:
+        for a, b in _TRI_EDGES if mesh.econn.shape[1] == 3 else _LOCAL_EDGES:
             key = (int(min(nodes[a], nodes[b])), int(max(nodes[a], nodes[b])))
             if key in face_owner:
                 other = face_owner.pop(key)

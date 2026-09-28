@@ -300,6 +300,208 @@ def build_problem_irregular(config, data, tf):
     )
 
 
+def build_problem_ring_beam(config, data, tf):
+    """Beam with two ring-reinforced openings on the released unstructured Tri3 mesh.
+
+    Same principles as build_problem_irregular, with the author's own device for
+    passive regions (upstream ThreeHoles2D): each ring is a native hard one-density
+    constraint and each opening a hard zero-density constraint listed after it.
+    Both boundaries are the exact polygons of the mesh: the traction-free hole
+    boundary and the ring/design interface. Supports use the author's distance
+    length factor on the exact pinned (both components) and roller (vertical
+    component) segments. Training keeps the author's sampling, energy, filter and
+    OC/MSE updates unchanged.
+    """
+    import numpy as np
+    from ntopo.problems import Problem2D
+    from ntopo.physics import DiracForce
+    from ntopo.constraints import (
+        DensityConstraint,
+        DensityConstraintAdd,
+        DisplacementConstraint,
+        one_densities_function,
+        zero_densities_function,
+    )
+
+    coords, cells = data["coords"], data["cells"]
+    metadata = config["extra"]
+    lo = coords.min(0)
+    extent = coords.max(0) - lo
+    scale = 0.5 / extent[1]
+    mapped = ((coords - lo) * scale).astype(np.float32)
+    centers = ((data["centroids"] - lo) * scale).astype(np.float32)
+    p = Problem2D()
+    p.domain = np.array([0.0, extent[0] * scale, 0.0, 0.5], dtype=np.float32)
+    ring = np.zeros(len(cells), dtype=bool)
+    ring[np.asarray(metadata["passive_solid_elements"], dtype=int)] = True
+    vertices = coords[cells]
+    following = np.roll(vertices, -1, axis=1)
+    area = 0.5 * np.sum(
+        vertices[:, :, 0] * following[:, :, 1] - following[:, :, 0] * vertices[:, :, 1], axis=1
+    )
+    if np.any(area <= 0):
+        raise ValueError("Expected counterclockwise triangles")
+    # Exact polygonal boundaries from the mesh: free edges off the outer
+    # rectangle bound the openings; edges shared by one ring and one design
+    # triangle bound the rings.
+    local = [[i, (i + 1) % cells.shape[1]] for i in range(cells.shape[1])]
+    edges = np.sort(np.concatenate([cells[:, e] for e in local]), axis=1)
+    owners = np.tile(np.arange(len(cells)), len(local))
+    edges, inverse, counts = np.unique(edges, axis=0, return_inverse=True, return_counts=True)
+    ring_sides = np.bincount(inverse.reshape(-1), weights=ring[owners], minlength=len(edges))
+    free_nodes = np.unique(edges[counts == 1])
+    xy = coords[free_nodes]
+    on_box = np.any(
+        np.isclose(xy, lo, atol=1e-10) | np.isclose(xy, lo + extent, atol=1e-10), axis=1
+    )
+    hole_nodes = free_nodes[~on_box]
+    ring_nodes = np.unique(edges[(counts == 2) & (ring_sides == 1)])
+    opening_centers = np.asarray(metadata["centers"], dtype=float)
+
+    def nearest(nodes):
+        return np.argmin(
+            np.linalg.norm(coords[nodes][:, None, :] - opening_centers[None], axis=2), axis=1
+        )
+
+    class ConvexPolygon:
+        """Signed distance whose sign is exact for a convex polygon; negative inside."""
+
+        def __init__(self, polygon):
+            following = np.roll(polygon, -1, axis=0)
+            self.area = 0.5 * np.sum(
+                polygon[:, 0] * following[:, 1] - following[:, 0] * polygon[:, 1]
+            )
+            edges = following - polygon
+            normals = np.c_[edges[:, 1], -edges[:, 0]] / np.linalg.norm(edges, axis=1)[:, None]
+            signed = np.einsum("ijk,jk->ij", polygon[:, None, :] - polygon[None, :, :], normals)
+            if len(polygon) < 3 or self.area <= 0 or np.max(signed) > 1e-8:
+                raise ValueError("Expected a counterclockwise convex polygon")
+            self.polygon = polygon
+            self.normals = tf.constant(normals.astype(np.float32))
+            self.offsets = tf.constant(
+                np.sum(((polygon - lo) * scale) * normals, axis=1).astype(np.float32)
+            )
+
+        def eval_distance(self, positions):
+            return tf.reduce_max(
+                tf.matmul(positions, self.normals, transpose_b=True) - self.offsets,
+                axis=1,
+                keepdims=True,
+            )
+
+    holes, rings = [], []
+    for k, center in enumerate(opening_centers):
+        for nodes, store in ((hole_nodes, holes), (ring_nodes, rings)):
+            loop = coords[nodes[nearest(nodes) == k]]
+            loop = loop[np.argsort(np.arctan2(*(loop - center)[:, ::-1].T))]
+            store.append(ConvexPolygon(loop))
+    hole_area = sum(h.area for h in holes)
+    ring_area = sum(r.area for r in rings) - hole_area
+    for hole, rim in zip(holes, rings):
+        inside = rim.eval_distance(tf.constant(((hole.polygon - lo) * scale).astype(np.float32)))
+        if not np.all(inside.numpy() < 0):
+            raise ValueError("Each opening must lie inside its ring")
+    if not np.isclose(area.sum(), extent.prod() - hole_area, rtol=1e-10):
+        raise ValueError("Neural domain area differs from the canonical mesh")
+    if not np.isclose(area[ring].sum(), ring_area, rtol=1e-10):
+        raise ValueError("Ring polygons differ from the canonical passive elements")
+    # Author's ThreeHoles2D ordering: one-density rings, then zero-density
+    # openings, which take precedence inside the openings.
+    p.density_constraint = DensityConstraintAdd(
+        [DensityConstraint(r, one_densities_function) for r in rings]
+        + [DensityConstraint(h, zero_densities_function) for h in holes]
+    )
+    # The native constraint itself must reproduce the canonical passive set at
+    # the readout points: 1 on every ring triangle, untouched elsewhere, 0 nowhere.
+    sentinel = -np.ones((len(centers), 1), dtype=np.float32)
+    constrained = (
+        p.density_constraint.apply(tf.constant(centers), tf.constant(sentinel)).numpy().reshape(-1)
+    )
+    if not (np.all(constrained[ring] == 1.0) and np.all(constrained[~ring] == -1.0)):
+        raise ValueError("Native density constraints differ from the canonical ring elements")
+
+    class LowerEdgeSegment:
+        """Exact distance to a segment of y=0; zero exactly on it in float32."""
+
+        def __init__(self, x0, x1):
+            self.x0 = np.float32((x0 - lo[0]) * scale)
+            self.x1 = np.float32((x1 - lo[0]) * scale)
+
+        def eval_distance_square(self, positions):
+            x, y = positions[:, 0:1], positions[:, 1:2]
+            gap = tf.maximum(self.x0 - x, 0.0) + tf.maximum(x - self.x1, 0.0)
+            return gap * gap + y * y
+
+    pin = LowerEdgeSegment(*metadata["pin_x"])
+    roller = LowerEdgeSegment(*metadata["roller_x"])
+    pinned = DisplacementConstraint(p.domain, [pin])
+    supported = DisplacementConstraint(p.domain, [pin, roller])
+    p.bc = lambda x: tf.concat(
+        [
+            pinned.compute_length_factor(tf.concat(x, axis=1)),
+            supported.compute_length_factor(tf.concat(x, axis=1)),
+        ],
+        axis=1,
+    )
+    force = data["forces"].reshape(-1, 2)
+    nodes = np.flatnonzero(np.any(force != 0, axis=1))
+    point_count = len(nodes)
+    force_scale = 0.0025
+    p.forcing = DiracForce(
+        position=mapped[nodes].tolist(), force=(point_count * force_scale * force[nodes]).tolist()
+    )
+    p.init()
+    estimated_free_volume = float(p.free_volume)
+    estimated_constraint_volume = float(p.constraint_volume)
+    # OC target = volume fraction x meshed area, rings included, as for HGTO/SIMP-OC.
+    p.free_volume = float(area.sum() * scale**2)
+    p.constraint_volume = 0.0
+    factors = np.asarray(p.bc([tf.constant(mapped[:, 0:1]), tf.constant(mapped[:, 1:2])])).reshape(
+        -1
+    )
+    zeros = np.flatnonzero(np.abs(factors) < 1e-12)
+    assert np.array_equal(zeros, np.sort(data["fixed"])), (zeros, data["fixed"])
+    probe = np.random.default_rng(709).normal(size=(point_count, 2)).astype(np.float32)
+    work = -float(p.forcing.compute_force_loss(lambda _: tf.constant(probe), None).numpy().item())
+    expected = float(np.sum(probe * force_scale * force[nodes]))
+    assert np.isclose(work, expected, rtol=2e-6, atol=1e-12)
+    assert np.allclose(
+        np.asarray(p.forcing.force) / point_count, force_scale * force[nodes], rtol=1e-6, atol=1e-12
+    )
+    assert np.allclose(np.asarray(p.forcing.force_position), mapped[nodes], rtol=0, atol=1e-7)
+    return (
+        p,
+        centers,
+        dict(
+            coordinate_scale=scale,
+            force_scale=force_scale,
+            canonical_fixed_dof_count=len(zeros),
+            boundary_zero_set_verified=True,
+            support_mapping="Author distance length factor: x-component on the pinned segment, y-component on pinned and roller segments (exact float32 zero set)",
+            load_nodes=nodes.tolist(),
+            load_positions=mapped[nodes].tolist(),
+            load_vectors=(force_scale * force[nodes]).tolist(),
+            upstream_force_vectors=p.forcing.force.tolist(),
+            force_point_mean_compensation=point_count,
+            force_work_quadrature_verified=True,
+            canonical_area=float(area.sum()),
+            canonical_excluded_area=float(hole_area),
+            canonical_ring_area=float(area[ring].sum()),
+            ring_polygon_area=float(ring_area),
+            passive_solid_elements=int(ring.sum()),
+            passive_set_verified_at_readout=True,
+            native_free_volume=p.free_volume,
+            upstream_grid_estimated_free_volume=estimated_free_volume,
+            upstream_grid_estimated_constraint_volume=estimated_constraint_volume,
+            volume_mapping="OC targets native_free_volume (exact meshed area, rings included) times the prescribed volume fraction; ring samples enter the author's OC volume sum natively",
+            opening_polygons=[h.polygon.tolist() for h in holes],
+            ring_polygons=[r.polygon.tolist() for r in rings],
+            domain_mapping="Native hard one-density constraints on the exact ring polygons and zero-density constraints on the exact openings (author ThreeHoles2D ordering); no energy in the openings",
+            readout="Raw continuous density at canonical Tri3 centroids; ring centroids receive the native constraint value 1; no rescaling or repair",
+        ),
+    )
+
+
 def build_problem_3d(config, data, tf):
     import numpy as np
     from ntopo.physics import DiracForce
@@ -420,6 +622,8 @@ def main():
         if dimension == 3
         else build_problem_irregular
         if config["family"] in ("l_bracket_domain", "perforated_bracket")
+        else build_problem_ring_beam
+        if config["family"] == "ring_beam_tri3"
         else build_problem
     )
     problem, centers, mapping = build(config, np.load(out / "input.npz"), tf)
@@ -528,6 +732,25 @@ def main():
         return answer
 
     train.run_simulation = timed_simulation
+    if config.get("extra", {}).get("passive_volume") == "fixed":
+        # Upstream OC moves every sample, including one-density samples, within
+        # its move limit and sums the result in the volume bisection, although
+        # the model emits 1 there. Hold those samples at their constrained value
+        # (as SIMP-OC/HGTO hold passive elements): after the unchanged filter,
+        # their sensitivity is made so large that OC returns its upper bound 1.
+        # Design samples, their filtered sensitivities and the MSE fit are unchanged.
+        original_filter = train.apply_sensitivity_filter
+
+        def passive_one_filter(sample_positions, old_densities, sensitivities, **kwargs):
+            filtered = original_filter(sample_positions, old_densities, sensitivities, **kwargs)
+            distances, values = problem.density_constraint.compute(sample_positions)
+            fixed_one = tf.logical_and(distances <= 0.0, tf.equal(values, 1.0))
+            return tf.where(fixed_one, tf.constant(-1e30, dtype=filtered.dtype), filtered)
+
+        train.apply_sensitivity_filter = passive_one_filter
+        mapping["passive_volume"] = (
+            "fixed: one-density samples enter the OC volume bisection at their constrained value 1"
+        )
     try:
         train.train_mmse(
             problem,

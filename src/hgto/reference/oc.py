@@ -34,15 +34,28 @@ class PhysicalDensityMap(DensityMap):
     def __init__(self, centroids, radius, rho_min):
         super().__init__(centroids, radius)
         self.rho_min = rho_min
+        self.fixed_density = None
 
     def physical(self, x, beta=0.0):
+        fixed = self.fixed_density
+        if fixed is not None:
+            x = np.where(np.isfinite(fixed), fixed, x)
         rho, derivative = super().physical(x, beta)
-        return (self.rho_min + (1 - self.rho_min) * rho, (1 - self.rho_min) * derivative)
+        rho = self.rho_min + (1 - self.rho_min) * rho
+        derivative = (1 - self.rho_min) * derivative
+        if fixed is not None:
+            rho = np.where(np.isfinite(fixed), fixed, rho)
+            derivative = np.where(np.isfinite(fixed), 0.0, derivative)
+        return rho, derivative
 
 
 def weighted_oc_update(x, dc, dv, mapping, volume, beta, weights, move):
     """Multiplicative OC; bisection enforces physical, area/volume-weighted mass."""
     lower, upper = np.maximum(0.0, x - move), np.minimum(1.0, x + move)
+    if mapping.fixed_density is not None:
+        fixed = mapping.fixed_density
+        lower = np.where(np.isfinite(fixed), fixed, lower)
+        upper = np.where(np.isfinite(fixed), fixed, upper)
     scale = np.sqrt(np.maximum(-dc, 0.0) / np.maximum(dv, 1e-30))
     left, right = 0.0, max(1.0, float(np.max(scale * scale)))
     for _ in range(100):
@@ -95,6 +108,7 @@ def optimize_oc(
     # Weight contributing cells by their measure on nonuniform meshes.
     mapping.A = mapping.A @ sparse.diags(physics.element_volumes)
     mapping.A = sparse.diags(1.0 / np.asarray(mapping.A.sum(axis=1)).ravel()) @ mapping.A
+    mapping.fixed_density = getattr(problem, "fixed_density", None)
     n = len(physics.cells)
     weights = physics.element_volumes / physics.element_volumes.sum()
     x = (
@@ -119,7 +133,12 @@ def optimize_oc(
                 left = shift
             else:
                 right = shift
-        return expit(z - (left + right) / 2)
+        result = expit(z - (left + right) / 2)
+        return (
+            result
+            if mapping.fixed_density is None
+            else np.where(np.isfinite(mapping.fixed_density), mapping.fixed_density, result)
+        )
 
     setup_s = time.perf_counter() - started_at
     history, snapshots, stages = [], [], []

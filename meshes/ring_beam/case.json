@@ -1,0 +1,69 @@
+{
+  "name": "ring_beam_tri3",
+  "family": "unstructured_mesh",
+  "bounding_box": [
+    4.0,
+    1.5
+  ],
+  "centers": [
+    [
+      1.0,
+      0.75
+    ],
+    [
+      3.0,
+      0.75
+    ]
+  ],
+  "hole_radius": 0.25,
+  "ring_outer_radius": 0.35,
+  "target_volume": 0.4,
+  "filter_radius": 0.1,
+  "description": "Simply supported 4 x 1.5 beam with two openings (r=0.25) at (1,0.75) and (3,0.75), each surrounded by a passive solid ring 0.25<=r<=0.35 that counts toward the volume fraction",
+  "mesh_algorithm": "Gmsh frontal-Delaunay linear triangles (Tri3), counter-clockwise",
+  "supports": "Lower edge: pin ux=uy=0 on 0<=x<=0.1, roller uy=0 on 3.9<=x<=4",
+  "pin_x": [
+    0.0,
+    0.1
+  ],
+  "roller_x": [
+    3.9,
+    4.0
+  ],
+  "loads": "Uniform downward traction on the upper edge, 1.9<=x<=2.1, resultant Fy=-1",
+  "excluded_geometry": "Two circular openings, traction-free boundaries",
+  "passive_elements": "fixed_density: 1 on the 1,868 ring triangles, NaN (designable) elsewhere",
+  "n_nodes": 8751,
+  "n_elements": 17043,
+  "ring_elements": 1868,
+  "area": 5.607799157635538,
+  "ring_area": 0.3769830218696265,
+  "pin_nodes": [
+    0,
+    1,
+    24,
+    25
+  ],
+  "roller_nodes": [
+    2,
+    3,
+    134,
+    135
+  ],
+  "load_nodes": [
+    5,
+    6,
+    232,
+    233,
+    234,
+    235,
+    236
+  ],
+  "force_resultant": [
+    0.0,
+    -1.0
+  ],
+  "load_discretization": "Consistent line integral of uniform edge traction",
+  "prescribed_solid_elements": true,
+  "all_other_boundaries": "Traction-free"
+}

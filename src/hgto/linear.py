@@ -79,6 +79,10 @@ def problem_from_settings(settings, config_dir=Path(".")):
             forces=problem.forces,
             element_volumes=arrays["element_volumes"],
         )
+        if "fixed_density" in arrays:
+            # Passive cells: NaN for design cells, 0 or 1 for fixed physical density.
+            problem.fixed_density = arrays["fixed_density"]
+            geometry["fixed_density"] = arrays["fixed_density"]
         original = metadata
     else:
         raise ValueError(f"Unsupported study category {category}")
@@ -174,9 +178,15 @@ def run(settings, output, config_dir=Path("."), threads=2, resume_from=None):
     else:
         config = GraphOptimizerConfig(**opts)
         library = None
+        physics_device = device
         if device == "cpu":
             library = ScikitFEMElasticity.from_problem(problem)
             physics = LibraryPhysics(library)
+        elif problem.cells.shape[1] == 3:
+            # Unstructured triangles: assembled stiffness, direct cuDSS factorization.
+            from hgto.linear2d.tri3_physics import Tri3Elasticity
+
+            physics = Tri3Elasticity(mesh, problem.fixed, problem.forces[:, 0], device)
         elif category in ("linear2d", "domains"):
             from hgto.linear2d.physics import GraphElasticity
 
@@ -196,30 +206,32 @@ def run(settings, output, config_dir=Path("."), threads=2, resume_from=None):
             volumes=volumes,
             started_at=t0,
             resume_from=resume_from,
+            fixed_density=geometry.get("fixed_density"),
         )
         result["summary"]["max_state_residual"] = physics.max_residual
-        result["summary"]["state_backend"] = (
-            "scikit-fem CPU"
-            if library is not None
-            else (
-                "FP64 graph Jacobi-PCG GPU"
-                if getattr(physics.operator, "preconditioner", "mgcg") == "jacobi"
-                else (
-                    "FP64 graph SA-AMG-PCG GPU"
-                    if physics.operator.preconditioner == "amgcg"
-                    else "FP64 graph MG-PCG GPU"
-                )
-            )
-        )
-        if library is None:
-            result["summary"]["state_preconditioner"] = physics.operator.preconditioner
+        operator = getattr(physics, "operator", None)
+        if library is not None:
+            backend = "scikit-fem CPU"
+        elif operator is None:
+            backend = "FP64 Tri3 hyperedge assembly, cuDSS direct solve GPU"
+        elif getattr(operator, "preconditioner", "mgcg") == "jacobi":
+            backend = "FP64 graph Jacobi-PCG GPU"
+        elif operator.preconditioner == "amgcg":
+            backend = "FP64 graph SA-AMG-PCG GPU"
+        else:
+            backend = "FP64 graph MG-PCG GPU"
+        result["summary"]["state_backend"] = backend
+        if operator is not None:
+            result["summary"]["state_preconditioner"] = operator.preconditioner
         result["summary"]["state_device"] = (
-            "cpu" if library is not None else str(physics.operator.device)
+            "cpu" if library is not None else str(getattr(operator, "device", physics_device))
         )
         if hasattr(physics, "iterations"):
             result["summary"]["state_iterations"] = physics.iterations
         if library is not None:
             library.close()
+        elif hasattr(physics, "close"):
+            physics.close()
     optimizer_end = time.perf_counter()
     reference = ScikitFEMElasticity.from_problem(problem)
     c, g, u = reference.evaluate(result["rho"])

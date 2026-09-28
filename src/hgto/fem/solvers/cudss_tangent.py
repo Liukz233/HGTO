@@ -77,11 +77,12 @@ class CudaTangentSolver:
         # Only mesh/connectivity metadata are transferred for this one-time map.
         nodes = operator.econn.detach().cpu().numpy()
         free = np.flatnonzero(operator.free_dof_mask.cpu().numpy())
-        ids = (2 * nodes[:, :, None] + np.arange(2)).reshape(-1, 8)
+        nd = 2 * nodes.shape[1]
+        ids = (2 * nodes[:, :, None] + np.arange(2)).reshape(-1, nd)
         reduced = np.full(operator.n_dof, -1, dtype=np.int64)
         reduced[free] = np.arange(len(free))
-        r = np.repeat(reduced[ids], 8, axis=1).reshape(-1)
-        c = np.tile(reduced[ids], (1, 8)).reshape(-1)
+        r = np.repeat(reduced[ids], nd, axis=1).reshape(-1)
+        c = np.tile(reduced[ids], (1, nd)).reshape(-1)
         valid = np.flatnonzero((r >= 0) & (c >= 0))
         n = len(free)
         keys = r[valid] * n + c[valid]
@@ -170,8 +171,9 @@ class CudaTangentSolver:
 
 
 def solve_cuda_tangent(operator, element_matrices, rhs, matvec, rtol, transpose=False):
-    if tuple(element_matrices.shape) != (operator.n_elements, 8, 8):
-        raise ValueError("Expected Q4 element tangents")
+    nd = 2 * operator.econn.shape[1]
+    if tuple(element_matrices.shape) != (operator.n_elements, nd, nd):
+        raise ValueError("Element tangents must match mesh connectivity")
     if rhs.device.type != "cuda" or element_matrices.device != rhs.device:
         raise ValueError("No CPU state or tangent is permitted")
     if not hasattr(operator, "_cudss_tangent"):

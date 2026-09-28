@@ -46,6 +46,7 @@ def optimize_graph(
     volumes=None,
     started_at=None,
     resume_from=None,
+    fixed_density=None,
 ):
     """Optimize graph weights, accepting any mesh and a (C, dC/drho) oracle."""
     torch.manual_seed(config.seed)
@@ -107,6 +108,11 @@ def optimize_graph(
     weights = (
         None if volumes is None else torch.as_tensor(volumes, device=device, dtype=torch.float64)
     )
+    fixed = (
+        None
+        if fixed_density is None
+        else torch.as_tensor(fixed_density, device=device, dtype=torch.float64)
+    )
     history = []
     snapshots = []
     C0 = None
@@ -124,7 +130,7 @@ def optimize_graph(
         logits = net(coords, edges)
         for indices in symmetries:
             logits = 0.5 * (logits + logits[indices])
-        rho = volume_density(logits, volume, A, beta, config.rho_min, weights)
+        rho = volume_density(logits, volume, A, beta, config.rho_min, weights, fixed_density=fixed)
         C, g = physics.evaluate(rho)
         C = float(C)
         if C0 is None:
