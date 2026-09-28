@@ -23,6 +23,7 @@ from scipy.special import expit, logit
 from hgto._runtime import preserve_default_dtype
 from hgto.nonlinear.optimization import case, operator, solve, diagnostics
 from hgto.topopt.pipeline.filter import DensityFilter
+from hgto.nonlinear.stationarity import projected_gradient
 
 
 @dataclass(frozen=True)
@@ -48,15 +49,42 @@ class NonlinearOCConfig:
     snapshot_interval: int = 20
     positive_gradient_relative_tolerance: float = 1e-10
     mixed_sign_update: str = "reject"
-    max_candidate_backtracks: int = 10
+    max_candidate_backtracks: int = 20
     acceptance: str = "state_solvable"
     acceptance_relative_tolerance: float = 1e-8
     stopping_rule: str = "joint"
     tangent_backend: str = "scipy"
+    stationarity_tolerance: float | None = None
+    adaptive_load: bool = False
+    device: str = "cpu"
+    max_wall_seconds: float | None = None
+    # ``beta_ramp_base`` keeps the geometric beta rate of the reference
+    # schedule, base**(k/(0.8*continuation_updates)), and caps it at
+    # beta_final, so beta_final > base extends the same continuation.
+    beta_ramp_base: float | None = None
+    # Element-wise adaptive move limits at the final continuation stage
+    # (oscillation-controlled, as in SLP/MMA move-limit adaptation):
+    # a design variable whose update reverses sign has its move limit
+    # multiplied by ``move_shrink``; otherwise it grows by ``move_grow`` up
+    # to the reference move/beta. False keeps the fixed move limit.
+    adaptive_move: bool = False
+    move_shrink: float = 0.5
+    move_grow: float = 1.2
+    move_floor: float = 1e-4
+    # Optional state continuation: each Neo-Hookean analysis starts at the
+    # full load from the equilibrium of the last accepted design and falls
+    # back to incremental loading from the undeformed state on failure, as
+    # HGTO's physics field does. The final check is always loaded from the
+    # undeformed state. False keeps the conventional nested analysis.
+    state_continuation: bool = False
 
     def validate(self):
-        if self.tangent_backend not in ("scipy", "pypardiso"):
+        if self.tangent_backend not in ("scipy", "pypardiso", "cudss"):
             raise ValueError("Unknown tangent backend")
+        if self.stationarity_tolerance is not None and self.stationarity_tolerance <= 0:
+            raise ValueError("stationarity_tolerance must be positive or None")
+        if self.max_wall_seconds is not None and self.max_wall_seconds <= 0:
+            raise ValueError("max_wall_seconds must be positive or None")
         if self.stopping_rule not in ("joint", "density_change", "physical"):
             raise ValueError("Unknown OC stopping rule")
         if self.acceptance not in ("state_solvable", "fixed_parameter_descent"):
@@ -97,9 +125,17 @@ class NonlinearOCConfig:
             return float(self.p_final), float(self.beta_final)
         p_fraction = min(1.0, iteration / max(1, int(0.7 * self.continuation_updates)))
         beta_fraction = min(1.0, iteration / max(1, int(0.8 * self.continuation_updates)))
+        if self.beta_ramp_base is not None:
+            beta = min(
+                float(self.beta_final),
+                float(self.beta_ramp_base)
+                ** (iteration / max(1, int(0.8 * self.continuation_updates))),
+            )
+        else:
+            beta = self.beta_final**beta_fraction
         return (
             self.p_initial + (self.p_final - self.p_initial) * p_fraction,
-            self.beta_final**beta_fraction,
+            beta,
         )
 
 
@@ -138,7 +174,7 @@ class NonlinearDensityMap:
         left, right = float(z.min()) - 48.0, float(z.max()) + 48.0
         for _ in range(120):
             shift = 0.5 * (left + right)
-            value = expit(z - shift)
+            value = np.clip(expit(z - shift), self.design_floor, 1 - self.design_floor)
             rho, _ = self.physical(value, beta)
             error = float(self.weights @ rho) - target
             if abs(error) < 2e-13:
@@ -160,6 +196,12 @@ def oc_update(
     For a nonnegative volume multiplier, the latter minimize at the move
     lower bound. A signed equality multiplier supplies additional mass if
     this restricted branch cannot reach the target. No gradient is negated.
+
+    The candidate curve uses volume derivatives at the current design, but
+    its multiplier is selected using the exact nonlinear physical volume.
+    This is an OC-type update with mass restoration, not an exact solution
+    of the linearly constrained approximation in PolyTop Appendix B or a
+    complete CONLIN implementation. Accepted descent is checked separately.
     """
     if mixed_sign_update not in ("reject", "reciprocal_linear"):
         raise ValueError("Unknown mixed-sign OC update")
@@ -236,7 +278,16 @@ def _dump(path, value):
 
 
 @preserve_default_dtype
-def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, spec=None):
+def run(
+    name,
+    physics,
+    load,
+    output,
+    config=NonlinearOCConfig(),
+    *,
+    setup=None,
+    spec=None,
+):
     """Optimize and archive a nonlinear SIMP–OC run, including failures.
 
     An explicit ``setup/spec`` pair allows exactly the same custom problem
@@ -259,14 +310,15 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
         spec = setup.raw
     if np.any(setup.passive_solid) or np.any(setup.passive_void):
         raise ValueError("This runner requires no passive elements")
-    op = operator(setup, tangent_backend=config.tangent_backend)
+    op = operator(setup, tangent_backend=config.tangent_backend, device=config.device)
+    op.adaptive_nh_load = config.adaptive_load
     mapping = NonlinearDensityMap(
         setup.mesh, config.filter_radius, config.rho_min, config.design_floor
     )
     target = float(setup.volume_fraction)
     if not config.rho_min < target < 1:
         raise ValueError("Volume fraction must lie between density floor and one")
-    force = torch.as_tensor(setup.f, dtype=torch.float64) * load
+    force = torch.as_tensor(setup.f, dtype=torch.float64, device=op.device) * load
     p, beta = config.parameters(0)
     x, _ = mapping.enforce_volume(np.full(setup.mesh.n_elements, target), beta, target)
     setup_seconds = time.perf_counter() - started
@@ -279,10 +331,22 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
         filter_radius_physical=config.filter_radius,
         rho_min=config.rho_min,
         load_steps=config.load_steps,
+        adaptive_load=config.adaptive_load,
+        adaptive_load_budgets={
+            "max_subdivisions": 6,
+            "max_failed_attempts": 8,
+            "max_extra_increments": 32,
+        }
+        | dict(getattr(op, "nh_adaptive_budgets", {}))
+        | {"max_newton_per_increment": int(getattr(op, "nh_max_newton", 100))}
+        if config.adaptive_load
+        else None,
+        newton_counter_scope="Successful load increments only; failed attempts counted separately; wall time includes all attempts",
         yield_stress=config.yield_stress,
         hardening=config.hardening,
         target_volume=target,
-        device="cpu",
+        device=str(op.device),
+        state_device=str(op.device),
         threads=torch.get_num_threads(),
         objective=config.objective,
         optimizer=(
@@ -297,6 +361,7 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
             else "Explicit linear approximation at move lower bound for nonnegative gradients; reject infeasible physical-volume brackets"
         ),
         candidate_acceptance=config.acceptance,
+        initial_density="uniform",
         timing_scope="Case/operator/filter setup, all state/adjoint/update work and rejected candidates plus one final reanalysis; excludes imports and later plotting; incremental diagnostic serialization is included",
     )
     _dump(out / "protocol.json", protocol)
@@ -308,7 +373,7 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
         coords=setup.mesh.coords,
         cells=setup.mesh.econn,
         fixed_dofs=setup.fixed_dofs,
-        forces=force.numpy(),
+        forces=force.cpu().numpy(),
     )
     source_root = Path(__file__).parents[1]
     _dump(
@@ -330,6 +395,8 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
     line_search_stop = None
     converged = False
     rho = mapping.physical(x, beta)[0]
+    element_move = None
+    previous_step = None
     try:
         for iteration in range(config.max_updates + 1):
             p, beta = config.parameters(iteration)
@@ -356,10 +423,17 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
                 state_calls += 1
                 gradient_calls += 1
                 state_error = None
+                state_invoked = False
                 try:
+                    if (
+                        config.max_wall_seconds is not None
+                        and time.perf_counter() - started >= config.max_wall_seconds
+                    ):
+                        raise TimeoutError("Nonlinear optimization reached its wall-time budget")
+                    state_invoked = True
                     value, gradient, details = solve(
                         op,
-                        torch.as_tensor(rho),
+                        torch.as_tensor(rho, device=op.device),
                         force,
                         physics,
                         True,
@@ -370,12 +444,17 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
                     )
                 except Exception as exc:
                     state_error = exc
+                    if not state_invoked:
+                        state_calls -= 1
+                        gradient_calls -= 1
                 if state_error is None:
                     successful_states += 1
                     successful_gradients += 1
                     total_newton += int(details.get("newton", 0))
                     total_completed_load_increments += (
-                        config.load_steps if physics in ("nh", "j2") else 1
+                        details.get("load_increments", config.load_steps)
+                        if physics in ("nh", "j2")
+                        else 1
                     )
                     if not check_descent or value <= reference_value + acceptance_tolerance:
                         break
@@ -386,7 +465,12 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
                         tolerance=acceptance_tolerance,
                     )
                 else:
-                    rejection = dict(reason="state_failure", error=str(state_error))
+                    rejection = dict(
+                        reason="wall_time_budget"
+                        if isinstance(state_error, TimeoutError)
+                        else "state_failure",
+                        error=str(state_error),
+                    )
                 failures.append(
                     dict(
                         iteration=iteration,
@@ -399,13 +483,16 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
                     )
                 )
                 _dump(out / "candidate_rejections.json", failures)
-                if previous_x is None or reductions >= config.max_candidate_backtracks:
-                    if check_descent:
+                timed_out = isinstance(state_error, TimeoutError)
+                if previous_x is None or reductions >= config.max_candidate_backtracks or timed_out:
+                    if check_descent or (timed_out and previous_x is not None):
                         # This cached state was accepted at these exact parameters.
                         # Keep its actual iteration index; the rejected attempt is
                         # not a completed design update or a convergence event.
                         line_search_stop = dict(
-                            reason="candidate_backtracking_exhausted",
+                            reason="wall_time_budget"
+                            if timed_out
+                            else "candidate_backtracking_exhausted",
                             attempted_iteration=iteration,
                             last_accepted_iteration=rows[-1]["iteration"],
                             p=p,
@@ -415,6 +502,7 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
                         )
                         x, rho = previous_x.copy(), previous_rho.copy()
                         value, gradient, details = previous_solution
+                        op.p.fill_(previous_p)
                         break
                     raise state_error
                 reductions += 1
@@ -424,8 +512,20 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
                 row = rows[-1]
                 iteration = row["iteration"]
                 break
-            dc = mapping.pullback(gradient.detach().numpy(), derivative)
+            dc = mapping.pullback(gradient.detach().cpu().numpy(), derivative)
             dv = mapping.pullback(mapping.weights, derivative)
+            _, stationarity = projected_gradient(
+                x, dc, dv, mapping.weights, value, config.design_floor
+            )
+            reference_move = config.move / max(1.0, beta)
+            final_stage = p == config.p_final and beta == config.beta_final
+            if config.adaptive_move and final_stage:
+                if element_move is None:
+                    element_move = np.full_like(x, reference_move)
+                move_used = element_move
+            else:
+                element_move = previous_step = None
+                move_used = reference_move
             next_x, next_rho, gradient_info = oc_update(
                 x,
                 dc,
@@ -433,7 +533,7 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
                 mapping,
                 target,
                 beta,
-                config.move / max(1.0, beta),
+                move_used,
                 config.positive_gradient_relative_tolerance,
                 config.mixed_sign_update,
             )
@@ -445,7 +545,7 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
                 fixed_objectives.append(float(value))
             window = fixed_objectives[-config.objective_window :]
             relative_window = (
-                (max(window) - min(window)) / max(abs(value), 1e-30)
+                (max(window) - min(window)) / max(abs(float(np.mean(window))), 1e-30)
                 if len(window) == config.objective_window
                 else None
             )
@@ -477,6 +577,12 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
                     and details["residual"] <= 1e-8
                     and abs(float(mapping.weights @ rho) - target) <= 1e-7
                 )
+            # Small accepted steps after repeated rejection are not a KKT
+            # certificate. Test a projection independent of the move limit.
+            is_stable = is_stable and (
+                config.stationarity_tolerance is None
+                or stationarity["projected_gradient_inf"] <= config.stationarity_tolerance
+            )
             stable = stable + 1 if is_stable else 0
             diag = diagnostics(details, spec)
             row = dict(
@@ -507,9 +613,15 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
                 total_newton_iterations=total_newton,
                 completed_load_increments=total_completed_load_increments,
                 **gradient_info,
+                mean_move_limit=float(np.mean(move_used)),
+                **stationarity,
                 **diag,
             )
             rows.append(row)
+            if config.state_continuation and physics == "nh" and "u" in details:
+                op.nh_state_start = details["u"].detach().clone()
+            np.save(out / "last_accepted_density.npy", rho)
+            np.save(out / "last_accepted_design.npy", x)
             with (out / "history.csv").open("w", newline="") as handle:
                 writer = csv.DictWriter(handle, fieldnames=list(row))
                 writer.writeheader()
@@ -540,16 +652,27 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
             if stable >= config.stable_steps or iteration == config.max_updates:
                 converged = stable >= config.stable_steps
                 break
+            if element_move is not None:
+                step = next_x - x
+                if previous_step is not None:
+                    reversed_ = step * previous_step < 0
+                    element_move = np.where(
+                        reversed_,
+                        np.maximum(config.move_floor, element_move * config.move_shrink),
+                        np.minimum(reference_move, element_move * config.move_grow),
+                    )
+                previous_step = step
             previous_x, previous_rho, previous_beta = x.copy(), rho.copy(), beta
             previous_p = p
             previous_solution = (value, gradient, details)
             x = next_x
         optimization_seconds = time.perf_counter() - started
+        op.nh_state_start = None
         check_started = time.perf_counter()
         state_calls += 1
         check_value, _, check_details = solve(
             op,
-            torch.as_tensor(rho),
+            torch.as_tensor(rho, device=op.device),
             force,
             physics,
             False,
@@ -573,7 +696,7 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
         np.savez_compressed(
             out / "states.npz",
             **{
-                key: val.detach().numpy()
+                key: val.detach().cpu().numpy()
                 for key, val in check_details.items()
                 if isinstance(val, torch.Tensor)
             },
@@ -584,7 +707,9 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
             method="SIMP-OC",
             converged=converged,
             termination=(
-                "stalled"
+                "wall_time_budget"
+                if line_search_stop is not None and line_search_stop["reason"] == "wall_time_budget"
+                else "stalled"
                 if line_search_stop is not None
                 else "convergence"
                 if converged
@@ -620,7 +745,7 @@ def run(name, physics, load, output, config=NonlinearOCConfig(), *, setup=None, 
                 out / "failed_sensitivities.npz",
                 filtered_objective_gradient=dc,
                 filtered_volume_gradient=dv,
-                physical_objective_gradient=gradient.detach().numpy(),
+                physical_objective_gradient=gradient.detach().cpu().numpy(),
             )
         _dump(
             out / "failure.json",

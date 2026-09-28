@@ -1,10 +1,10 @@
-name: nonlinear/cantilever_weak
+name: nonlinear/l_bracket_p0.02
 category: nonlinear
 method: hgto
 case:
-  name: cantilever_nh
+  name: lbracket_nh
   physics: nh
-  load: 0.00125
+  load: 0.02
   nh_solver:
     max_newton: 40
     adaptive_budgets:

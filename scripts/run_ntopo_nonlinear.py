@@ -102,7 +102,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--load", type=float, required=True)
-    parser.add_argument("--case", choices=["cantilever_nh", "bridge_nh"], default="cantilever_nh")
+    parser.add_argument(
+        "--case", choices=["cantilever_nh", "bridge_nh", "lbracket_nh"], default="cantilever_nh"
+    )
     parser.add_argument("--device", default="0", help="GPU index, or cpu")
     parser.add_argument("--tf-python", default=os.environ.get("HGTO_NTOPO_PYTHON"))
     parser.add_argument("--tf-keras-path", default=os.environ.get("HGTO_NTOPO_TF_KERAS_PATH"))
@@ -145,7 +147,7 @@ def main():
     out.mkdir(parents=True)
     config = dict(
         case=args.case,
-        family="bridge" if args.case == "bridge_nh" else "cantilever",
+        family={"bridge_nh": "bridge", "lbracket_nh": "l_bracket"}.get(args.case, "cantilever"),
         load=args.load,
         volume_fraction=spec["volume_fraction"],
         rho_min=0.001,
@@ -162,6 +164,9 @@ def main():
         sample_budget=args.samples,
         snapshot_interval=args.snapshot_interval,
     )
+    if args.case == "lbracket_nh":
+        # Removed quadrant [x0, y0, x1, y1] and the exact L-domain mesh area.
+        config.update(removed_region=spec["removed_region"], mesh_area=spec["mesh_area"])
     write(out / "config.json", config)
     np.savez_compressed(
         out / "input.npz",

@@ -10,6 +10,13 @@ from pathlib import Path
 import yaml
 
 
+def _mechanics_backend(device, configured):
+    """cuDSS on CUDA; on the CPU keep a configured CPU backend (SciPy or PARDISO)."""
+    if device.startswith("cuda"):
+        return "cudss"
+    return configured if configured in ("scipy", "pypardiso") else "scipy"
+
+
 def load_settings(path, *, method=None, device=None, state_device=None, max_updates=None):
     """Resolve a configuration without constructing a mesh or creating output."""
     settings = yaml.safe_load(Path(path).read_text())
@@ -28,14 +35,25 @@ def load_settings(path, *, method=None, device=None, state_device=None, max_upda
     if not isinstance(options, dict):
         raise ValueError(f"{selected} settings must be a mapping")
     if device:
-        if selected == "oc" and device != "cpu":
+        if selected == "oc" and category != "nonlinear" and device != "cpu":
             raise ValueError("SIMP--OC uses CPU mechanics; choose --device cpu")
-        if selected != "oc" or category != "nonlinear":
-            options["device"] = device
+        options["device"] = device
+        if selected == "oc" and category == "nonlinear":
+            options["tangent_backend"] = _mechanics_backend(device, options.get("tangent_backend"))
     if state_device:
-        if selected != "hgto" or category != "nonlinear":
-            raise ValueError("--state-device applies to nonlinear HGTO only")
-        options["state_device"] = state_device
+        if category != "nonlinear":
+            raise ValueError("--state-device applies to nonlinear mechanics only")
+        if selected == "oc":
+            if device is not None and device != state_device:
+                raise ValueError(
+                    "Nonlinear OC uses one mechanics device; --device and --state-device must agree"
+                )
+            options["device"] = state_device
+        else:
+            options["state_device"] = state_device
+        options["tangent_backend"] = _mechanics_backend(
+            state_device, options.get("tangent_backend")
+        )
     if max_updates is not None:
         if max_updates < 1:
             raise ValueError("--max-updates must be positive")
@@ -64,7 +82,9 @@ def main(argv=None):
     run.add_argument("--config", required=True, type=Path)
     run.add_argument("--output", required=True, type=Path)
     run.add_argument("--method", choices=("hgto", "oc"))
-    run.add_argument("--device", help="Density network device; cpu or cuda:0")
+    run.add_argument(
+        "--device", help="HGTO network or nonlinear OC mechanics device; cpu or cuda:0"
+    )
     run.add_argument("--state-device", help="Optional nonlinear mechanics device")
     run.add_argument("--threads", type=int, default=2)
     run.add_argument("--max-updates", type=int)

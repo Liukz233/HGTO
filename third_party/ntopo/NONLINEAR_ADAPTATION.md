@@ -47,6 +47,11 @@ domain area, and the physical force vector is retained. The author force class
 averages over points, so its input vectors receive the exact point-count
 compensation. There is no arbitrary load rescaling. The adapter supports a left-clamped rectangular cantilever and a doubly fixed
 bridge, with geometry-specific boundary constraints.
+The L-bracket (`lbracket_nh`, family `l_bracket`) uses the linear L-bracket
+mapping: the upper edge of the vertical arm is fixed, and the removed quadrant
+is the author's native hard zero-density constraint on the exact canonical
+cutout, applied after the density floor. It carries neither material volume
+nor energy, and the OC volume target uses the exact L-domain mesh area.
 
 The material uses `E=1`, `nu=0.3`, `p=3`, `Emin/E=1e-6`, and the same sharp
 Wang factor (`beta0=500`, `eta0=0.01`). Formal revised cases explicitly select
@@ -101,7 +106,8 @@ An output directory must first contain:
 
 - `input.npz`: physical `coords`, Q4 `cells`, physical `centroids`, flattened
   `fixed` DOFs, and physical `forces` (one simultaneous load vector).
-- `config.json`: `case`, `family` (`cantilever` or `bridge`), `volume_fraction`, `outer`,
+- `config.json`: `case`, `family` (`cantilever`, `bridge` or `l_bracket`; the last also needs
+  `removed_region` [x0, y0, x1, y1] and `mesh_area`), `volume_fraction`, `outer`,
   `inner`, and `batches`. Optional keys are `seed` (42), `rho_min` (0.001),
   `penalty` (3), `emin_fraction` (1e-6), `gamma_mode` (`heaviside` for legacy
   inputs; explicitly use `simp_heaviside` for the revised study), `mixed_sign_oc`

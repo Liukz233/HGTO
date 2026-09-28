@@ -31,8 +31,21 @@ def evaluate_nh(directory, *, output=None):
     output = Path(output).resolve() if output else directory / "verification"
     output.mkdir(parents=True, exist_ok=True)
     protocol = json.loads((directory / "protocol.json").read_text())
+    base_nx = (
+        96
+        if protocol["case"] in ("cantilever_nh", "bridge_nh")
+        else 64
+        if protocol["case"] == "lbracket_nh"
+        else 48
+    )
+    inferred_refine = int(protocol["nx"]) // base_nx
+    refine = int(protocol.get("refine", inferred_refine))
+    if refine < 1 or protocol["nx"] != base_nx * refine:
+        raise ValueError("Saved nonlinear refinement is not a canonical integer refinement")
     setup, spec = case(
-        protocol["case"], nh_transition_beta=protocol.get("nh_interpolation", {}).get("beta0")
+        protocol["case"],
+        refine=refine,
+        nh_transition_beta=protocol.get("nh_interpolation", {}).get("beta0"),
     )
     if protocol.get("nh_interpolation", {}) != spec.get("nh_interpolation", {}):
         raise ValueError("Saved nonlinear interpolation differs from the declared canonical case")
@@ -55,7 +68,16 @@ def evaluate_nh(directory, *, output=None):
     if load <= 0:
         raise ValueError("Use a positive physical load")
     start = time.perf_counter()
-    op = operator(setup, p=3.0)
+    saved_record = directory / "record.json"
+    final_p = (
+        float(json.loads(saved_record.read_text())["final"].get("p", 3.0))
+        if saved_record.exists()
+        else 3.0
+    )
+    op = operator(setup, p=final_p)
+    op.adaptive_nh_load = bool(
+        protocol.get("adaptive_load", protocol.get("config", {}).get("adaptive_load", False))
+    )
     rho = torch.as_tensor(density, dtype=op.dtype, device=op.device)
     force = torch.from_numpy(setup.f) * load
     steps = int(protocol.get("load_steps", 12))
@@ -73,6 +95,9 @@ def evaluate_nh(directory, *, output=None):
         evaluation_s=seconds,
         density_sha256=sha256(directory / "rho.npy"),
         density_processing="none",
+        load_steps=steps,
+        adaptive_load=op.adaptive_nh_load,
+        material_penalty=final_p,
         **diagnostics(fields, spec),
     )
     history = fields["history_u"].detach().numpy()

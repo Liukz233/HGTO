@@ -62,14 +62,42 @@ def dump(path, obj):
     path.write_text(json.dumps(obj, indent=2, ensure_ascii=False))
 
 
-def case(name, refine=1, nh_transition_beta=None):
+NH_CASES = ("cantilever_nh", "bridge_nh", "lbracket_nh")
+
+
+def validate_nh_solver(nh_solver):
+    """Validate optional Newton and adaptive load-bisection budgets."""
+    solver = dict(nh_solver)
+    unknown = set(solver) - {"max_newton", "adaptive_budgets"}
+    if unknown:
+        raise ValueError(f"Unknown nh_solver options: {sorted(unknown)}")
+    if "max_newton" in solver:
+        if type(solver["max_newton"]) is not int or solver["max_newton"] < 1:
+            raise ValueError("max_newton must be a positive integer")
+    if "adaptive_budgets" in solver:
+        budgets = dict(solver["adaptive_budgets"])
+        allowed = {"max_subdivisions", "max_failed_attempts", "max_extra_increments"}
+        if set(budgets) - allowed:
+            raise ValueError(f"Unknown adaptive budgets: {sorted(set(budgets) - allowed)}")
+        if any(type(v) is not int or v < 0 for v in budgets.values()):
+            raise ValueError("Adaptive budgets must be nonnegative integers")
+        solver["adaptive_budgets"] = budgets
+    return solver
+
+
+def case(name, refine=1, nh_transition_beta=None, nh_solver=None):
+    """Return the mesh, supports and unit load of a named nonlinear example.
+
+    ``nh_solver`` optionally sets the Newton iteration cap per load increment
+    (``max_newton``) and the adaptive load-bisection budgets
+    (``adaptive_budgets``); both are recorded in the returned specification.
+    """
     if name not in (
         "bridge",
         "large_cantilever",
         "plastic_lug",
-        "cantilever_nh",
         "connection_j2",
-        "bridge_nh",
+        *NH_CASES,
     ):
         raise ValueError(f"Unknown nonlinear example: {name}")
     if not isinstance(refine, int) or refine < 1:
@@ -80,6 +108,9 @@ def case(name, refine=1, nh_transition_beta=None):
         nx, ny, L, H, vf = 48 * refine, 16 * refine, 24.0, 8.0, 0.4
     elif name == "cantilever_nh":
         nx, ny, L, H, vf = 96 * refine, 24 * refine, 24.0, 6.0, 0.45
+    elif name == "lbracket_nh":
+        # 16 x 16 square without its upper-right 8 x 8 quadrant (3,072 cells).
+        nx, ny, L, H, vf = 64 * refine, 64 * refine, 16.0, 16.0, 0.4
     else:
         nx, ny, L, H, vf = (
             48 * refine,
@@ -92,10 +123,14 @@ def case(name, refine=1, nh_transition_beta=None):
     m.coords[:, 0] *= L / nx
     m.coords[:, 1] *= H / ny
     hole = None
+    keep = None
+    cent = m.element_centroids()
     if name in ("plastic_lug", "connection_j2"):
-        cent = m.element_centroids()
         hole = {"center": [10.5, 6.5], "radius": 2.0}
         keep = np.linalg.norm(cent - np.array(hole["center"]), axis=1) >= hole["radius"]
+    elif name == "lbracket_nh":
+        keep = ~((cent[:, 0] > L / 2) & (cent[:, 1] > H / 2))
+    if keep is not None:
         ec = m.econn[keep]
         used = np.unique(ec)
         ids = np.full(m.n_nodes, -1)
@@ -107,6 +142,14 @@ def case(name, refine=1, nh_transition_beta=None):
         mount = np.r_[left, right]
         ports = np.flatnonzero(
             np.isclose(m.coords[:, 1], H) & (abs(m.coords[:, 0] - L / 2) <= 1.5 + 1e-10)
+        )
+        direction = np.array([0.0, -1.0])
+    elif name == "lbracket_nh":
+        # Upper edge of the vertical arm fixed; downward load on the upper 1.5 units
+        # of the free end of the horizontal arm.
+        mount = np.flatnonzero(np.isclose(m.coords[:, 1], H))
+        ports = np.flatnonzero(
+            np.isclose(m.coords[:, 0], L) & (m.coords[:, 1] >= H / 2 - 1.5 - 1e-10)
         )
         direction = np.array([0.0, -1.0])
     else:
@@ -127,6 +170,7 @@ def case(name, refine=1, nh_transition_beta=None):
     force[ports] = direction / len(ports)
     spec = {
         "case": name,
+        "refine": refine,
         "nx": nx,
         "ny": ny,
         "L": L,
@@ -139,8 +183,15 @@ def case(name, refine=1, nh_transition_beta=None):
         "fixed_dofs": fixed.tolist(),
         "mesh_elements": m.n_elements,
         "mesh_nodes": m.n_nodes,
+        "port_weights": (force[ports] @ direction).tolist(),
     }
-    if name in ("cantilever_nh", "bridge_nh"):
+    if name == "lbracket_nh":
+        spec.update(
+            removed_region=[L / 2, H / 2, L, H],
+            volume_reference="area of the L-shaped finite-element domain",
+            mesh_area=float(m.element_volumes().sum()),
+        )
+    if name in NH_CASES:
         transition = 500.0 if nh_transition_beta is None else float(nh_transition_beta)
         if not np.isfinite(transition) or transition <= 0:
             raise ValueError("NH transition sharpness must be finite and positive")
@@ -151,6 +202,10 @@ def case(name, refine=1, nh_transition_beta=None):
         }
     elif nh_transition_beta is not None:
         raise ValueError("NH transition override requires a supported Neo-Hookean case")
+    if nh_solver is not None:
+        if name not in NH_CASES:
+            raise ValueError("nh_solver applies to Neo-Hookean cases only")
+        spec["nh_solver"] = validate_nh_solver(nh_solver)
     setup = CaseSetup(
         m, fixed, force, np.zeros(m.n_elements, bool), np.zeros(m.n_elements, bool), vf, name, spec
     )
@@ -171,6 +226,12 @@ def operator(setup, p=3.0, tangent_backend="scipy", device="cpu"):
         raise ValueError("CUDA states require cuDSS; CPU states require a CPU backend")
     op.sparse_tangent_backend = tangent_backend
     op.nh_interpolation = dict(setup.raw.get("nh_interpolation", {}))
+    # Optional state-solver budgets (recorded in the case spec/protocol).
+    solver = setup.raw.get("nh_solver", {})
+    if "max_newton" in solver:
+        op.nh_max_newton = int(solver["max_newton"])
+    if "adaptive_budgets" in solver:
+        op.nh_adaptive_budgets = dict(solver["adaptive_budgets"])
     return op
 
 
@@ -231,19 +292,53 @@ def solve(
         return C, g, {"u": u, "residual": residual, "history_u": u.clone()}
     if physics == "nh":
         interpolation = getattr(op, "nh_interpolation", {})
-        st = solve_nh_state(
-            op,
-            rho,
-            force[None],
-            n_ramp=load_steps,
-            rtol=1e-8,
-            pcg_rtol=1e-10,
-            max_newton=100,
-            max_backtracks=35,
-            record_ramp_history=True,
-            linear_solver=linear_solver,
-            **interpolation,
+        nh_solver = solve_nh_state
+        if getattr(op, "adaptive_nh_load", False):
+            from hgto.fem.physics.neohookean.adaptive import solve_nh_adaptive
+
+            nh_solver = solve_nh_adaptive
+        extra = (
+            dict(getattr(op, "nh_adaptive_budgets", {})) if nh_solver is not solve_nh_state else {}
         )
+        # Physics-field continuation (optional): an elastic state is path independent, so the
+        # equilibrium may be continued at the full load from the previous accepted state. Any
+        # failure falls back to incremental loading from the undeformed state below.
+        u_start = getattr(op, "nh_state_start", None)
+        st = None
+        if u_start is not None:
+            try:
+                st = solve_nh_state(
+                    op,
+                    rho,
+                    force[None],
+                    u0=u_start,
+                    n_ramp=1,
+                    rtol=1e-8,
+                    pcg_rtol=1e-10,
+                    max_newton=int(getattr(op, "nh_max_newton", 100)),
+                    max_backtracks=35,
+                    record_ramp_history=True,
+                    linear_solver=linear_solver,
+                    **interpolation,
+                )
+            except RuntimeError:
+                st = None
+        state_start = "previous_state" if st is not None else "undeformed"
+        if st is None:
+            st = nh_solver(
+                op,
+                rho,
+                force[None],
+                n_ramp=load_steps,
+                rtol=1e-8,
+                pcg_rtol=1e-10,
+                max_newton=int(getattr(op, "nh_max_newton", 100)),
+                max_backtracks=35,
+                record_ramp_history=True,
+                linear_solver=linear_solver,
+                **extra,
+                **interpolation,
+            )
         if objective == "complementary_work":
             value = -2 * float(st.potential)
             g = (
@@ -280,6 +375,9 @@ def solve(
             "potential": float(st.potential),
             "min_det_F_material": float(det[0, solid].min()),
             "F": F,
+            "load_increments": getattr(st, "adaptive_successful_increments", load_steps),
+            "load_cutback_failures": getattr(st, "adaptive_failed_attempts", 0),
+            "state_start": state_start,
         }
         return value, g, d
     sy = 1e6 if physics == "elastic_j2" else yield_stress
@@ -331,7 +429,8 @@ def diagnostics(d, spec):
     u = d["u"][0]
     ports = spec["port_nodes"]
     direction = u.new_tensor(spec["unit_direction"])
-    delta = float((u[ports] * direction).sum(1).mean())
+    weights = u.new_tensor(spec.get("port_weights", [1 / len(ports)] * len(ports)))
+    delta = float(((u[ports] * direction).sum(1) * weights).sum())
     return {k: v for k, v in d.items() if not isinstance(v, torch.Tensor)} | {
         "port_displacement": delta,
         "port_displacement_over_L": delta / spec["L"],
@@ -366,16 +465,51 @@ def run(
     nh_transition_beta=None,
     tangent_backend=None,
     state_device=None,
+    setup=None,
+    spec=None,
+    acceptance="fixed_parameter_descent",
+    acceptance_relative_tolerance=1e-8,
+    max_candidate_backtracks=20,
+    stationarity_tolerance=None,
+    min_fixed_updates=50,
+    load_steps=None,
+    adaptive_load=False,
+    max_wall_seconds=None,
+    beta_ramp_base=None,
+    p_initial=1.0,
+    state_continuation=False,
 ):
+    """Optimize a nonlinear graph-density design and archive its history.
+
+    ``beta_ramp_base`` keeps the geometric projection rate of the reference
+    schedule, base**(k / (0.8 * steps)), capped at ``beta_final``; with
+    ``beta_final`` above the base this continues the same ramp. With
+    ``state_continuation`` each Neo-Hookean analysis starts at the full load
+    from the previous accepted equilibrium and falls back to incremental
+    loading from the undeformed state if Newton fails.
+    """
     if steps < 1 or load <= 0 or beta_final < 1:
         raise ValueError("Use positive steps/load and beta_final >= 1")
+    if acceptance not in ("state_solvable", "fixed_parameter_descent"):
+        raise ValueError("Unknown graph candidate acceptance rule")
+    if stationarity_tolerance is not None and stationarity_tolerance <= 0:
+        raise ValueError("stationarity_tolerance must be positive or None")
+    if max_candidate_backtracks < 0 or acceptance_relative_tolerance < 0 or min_fixed_updates < 0:
+        raise ValueError("Invalid convergence or candidate acceptance settings")
+    if max_wall_seconds is not None and max_wall_seconds <= 0:
+        raise ValueError("max_wall_seconds must be positive or None")
+    backtracking = backtracking or acceptance == "fixed_parameter_descent"
     torch.set_default_dtype(torch.float64)
     state_device = state_device or device
     tangent_backend = tangent_backend or (
         "cudss" if torch.device(state_device).type == "cuda" else "scipy"
     )
-    setup, spec = case(name, nh_transition_beta=nh_transition_beta)
+    if setup is None:
+        setup, spec = case(name, nh_transition_beta=nh_transition_beta)
+    elif spec is None:
+        spec = setup.raw
     op = operator(setup, tangent_backend=tangent_backend, device=state_device)
+    op.adaptive_nh_load = bool(adaptive_load)
     out = Path(output)
     if (out / "record.json").exists():
         print("Already done", out)
@@ -410,7 +544,9 @@ def run(
 
     opt = torch.optim.Adam(net.parameters(), lr=learning_rate)
     force = torch.tensor(setup.f, device=op.device) * load
-    load_steps = 12 if physics in ["j2", "nh"] else 1
+    load_steps = (12 if physics in ["j2", "nh"] else 1) if load_steps is None else int(load_steps)
+    if load_steps < 1:
+        raise ValueError("load_steps must be positive")
     protocol = spec | {
         "physics": physics,
         "objective": objective,
@@ -421,7 +557,7 @@ def run(
         "architecture": architecture,
         "filter_radius_physical": 1.0,
         "rho_min": 0.001,
-        "p_schedule": [1.0, 3.0],
+        "p_schedule": [float(p_initial), 3.0],
         "beta_schedule": [1.0, beta_final],
         "optimizer": "Adam with cosine then bounded exponential learning-rate decay, clip .5",
         "learning_rate": learning_rate,
@@ -432,6 +568,27 @@ def run(
         "yield_stress": yield_stress,
         "hardening": hardening,
         "candidate_backtracking": bool(backtracking),
+        "candidate_acceptance": acceptance,
+        "acceptance_relative_tolerance": acceptance_relative_tolerance,
+        "max_candidate_backtracks": max_candidate_backtracks,
+        "stationarity_tolerance": stationarity_tolerance,
+        "stationarity_measure": "L2 parameter gradient of J/current_J, independent of learning rate",
+        "min_fixed_updates": min_fixed_updates,
+        "adaptive_load": bool(adaptive_load),
+        "newton_counter_scope": "Successful load increments only; failed attempts counted separately; wall time includes all attempts",
+        "max_wall_seconds": max_wall_seconds,
+        "beta_ramp_base": beta_ramp_base,
+        "state_continuation": bool(state_continuation),
+        "adaptive_load_budgets": {
+            "max_subdivisions": 6,
+            "max_failed_attempts": 8,
+            "max_extra_increments": 32,
+        }
+        | dict(getattr(op, "nh_adaptive_budgets", {}))
+        | {"max_newton_per_increment": int(getattr(op, "nh_max_newton", 100))}
+        if adaptive_load
+        else None,
+        "resume_from": str(resume_from) if resume_from is not None else None,
         "initial_density": "uniform" if uniform_initial else "random_network",
         "network_device": str(next(net.parameters()).device),
         "state_device": str(op.device),
@@ -466,16 +623,20 @@ def run(
         opt.load_state_dict(checkpoint["optimizer_state"])
         C0 = checkpoint["C0"]
         start_update = checkpoint["update"]
-        if early_stopping:
-            raise ValueError("Continuation checks must disable stopping")
     if max_updates <= start_update or max_updates < int(0.8 * steps):
         raise ValueError("Maximum updates must exceed continuation/resume point")
     termination = "max_updates"
+    fixed_updates = 0
     try:
         for it in range(start_update, max_updates + 1):
             fraction = min(1.0, it / max(1, int(0.7 * steps)))
-            p = 1 + 2 * fraction
-            beta = beta_final ** min(1.0, it / max(1, int(0.8 * steps)))
+            p = p_initial + (3.0 - p_initial) * fraction
+            if beta_ramp_base is None:
+                beta = beta_final ** min(1.0, it / max(1, int(0.8 * steps)))
+            else:
+                beta = min(
+                    float(beta_final), float(beta_ramp_base) ** (it / max(1, int(0.8 * steps)))
+                )
             op.p.fill_(p)
             opt.zero_grad()
             z = material_logits()
@@ -484,19 +645,36 @@ def run(
             )
             t = time.perf_counter()
             reductions = 0
+            stalled = False
+            check_descent = (
+                acceptance == "fixed_parameter_descent"
+                and previous is not None
+                and previous["parameters"] == (p, beta)
+            )
             while True:
                 try:
+                    if (
+                        max_wall_seconds is not None
+                        and time.perf_counter() - start >= max_wall_seconds
+                    ):
+                        raise TimeoutError("Nonlinear optimization reached its wall-time budget")
                     C, g, d = solve(
                         op,
                         rho.detach().to(op.device),
                         force,
                         physics,
-                        it < max_updates,
+                        True,
                         load_steps,
                         yield_stress,
                         hardening,
                         objective=objective,
                     )
+                    if check_descent and C > previous["value"] * (
+                        1 + acceptance_relative_tolerance
+                    ):
+                        raise RuntimeError(
+                            f"Objective increase at fixed parameters: {C} > {previous['value']}"
+                        )
                     break
                 except Exception as exc:
                     np.save(out / "last_rejected_density.npy", rho.detach().cpu().numpy())
@@ -509,7 +687,27 @@ def run(
                         }
                     )
                     dump(out / "candidate_rejections.json", rejections)
-                    if not backtracking or previous is None or reductions >= 10:
+                    timed_out = isinstance(exc, TimeoutError)
+                    if previous is not None and (
+                        timed_out or (check_descent and reductions >= max_candidate_backtracks)
+                    ):
+                        # No rejected trial is a completed update or a
+                        # convergence event. Return the last accepted design.
+                        net.load_state_dict(previous["net"])
+                        opt.load_state_dict(previous["optimizer"])
+                        rho = previous["rho"]
+                        C, d = previous["value"], previous["details"]
+                        op.p.fill_(previous["parameters"][0])
+                        row = rows[-1]
+                        it = row["iteration"]
+                        stalled = True
+                        termination = "wall_time_budget" if timed_out else "stalled"
+                        break
+                    if (
+                        not backtracking
+                        or previous is None
+                        or reductions >= max_candidate_backtracks
+                    ):
                         raise
                     reductions += 1
                     net.load_state_dict(previous["net"])
@@ -523,8 +721,28 @@ def run(
                     rho = density_field(
                         z, filt, volumes, spec["volume_fraction"] * volumes.sum(), beta, 0.001
                     )
+            if stalled:
+                break
             if C0 is None:
                 C0 = C
+            # A retried Adam step has restored the preceding gradients.
+            # Clear them before differentiating this accepted density; without
+            # this reset, every backtrack adds stale gradients to the new one.
+            opt.zero_grad()
+            rho.backward(g.to(device) / C0)
+            normalized_gradient = float(
+                torch.sqrt(
+                    sum(
+                        (
+                            param.grad.square().sum()
+                            for param in net.parameters()
+                            if param.grad is not None
+                        ),
+                        rho.new_zeros(()),
+                    )
+                )
+            ) * abs(C0 / max(abs(C), 1e-30))
+            fixed_updates = fixed_updates + 1 if p == 3.0 and beta == beta_final else 0
             row = {
                 "iteration": it,
                 "candidate_step_reductions": reductions,
@@ -532,9 +750,16 @@ def run(
                 "p": p,
                 "beta": beta,
                 "volume": float((rho.detach() * volumes).sum() / volumes.sum()),
-                "Mnd": float(400 * (rho.detach() * (1 - rho.detach())).mean()),
+                "Mnd": float(
+                    400 * (rho.detach() * (1 - rho.detach()) * volumes).sum() / volumes.sum()
+                ),
                 "state_seconds": time.perf_counter() - t,
                 "elapsed": time.perf_counter() - start,
+                "parameter_gradient_norm": normalized_gradient,
+                "fixed_parameter_states": fixed_updates,
+                "descent_checked": check_descent,
+                "load_cutback_failures": d.get("load_cutback_failures", 0),
+                "load_increments": d.get("load_increments", load_steps),
                 **diagnostics(d, spec),
             }
             row.update(
@@ -545,11 +770,33 @@ def run(
                     continuation_complete=p == 3.0 and beta == beta_final,
                     volume_error=row["volume"] - spec["volume_fraction"],
                     residual=d["residual"],
-                    accepted=reductions == 0,
+                    # A backtracked candidate reaching this point passed both
+                    # equilibrium and the configured objective acceptance gate.
+                    accepted=True,
                 )
             )
+            row["plateau_detected"] = row["converged"]
+            row["stationarity_satisfied"] = (
+                stationarity_tolerance is None or normalized_gradient <= stationarity_tolerance
+            )
+            row["converged"] = bool(
+                row["converged"]
+                and row["stationarity_satisfied"]
+                and fixed_updates >= min_fixed_updates
+            )
             rows.append(row)
+            if state_continuation and physics == "nh":
+                op.nh_state_start = d["u"].detach().clone()
             np.save(out / "last_accepted_density.npy", rho.detach().cpu().numpy())
+            torch.save(
+                dict(
+                    network_state=net.state_dict(),
+                    optimizer_state=opt.state_dict(),
+                    C0=C0,
+                    update=it,
+                ),
+                out / "last_accepted_resume.pt",
+            )
             finish = (early_stopping and row["converged"]) or it == max_updates
             with (out / "history.csv").open("w", newline="") as f:
                 w = csv.DictWriter(f, fieldnames=list(rows[0]))
@@ -565,7 +812,6 @@ def run(
             if finish:
                 termination = "converged" if early_stopping and row["converged"] else "max_updates"
                 break
-            rho.backward(g.to(device) / C0)
             torch.nn.utils.clip_grad_norm_(net.parameters(), 0.5)
             lr = float(
                 final_learning_rate
@@ -586,6 +832,10 @@ def run(
                     "optimizer": copy.deepcopy(opt.state_dict()),
                     "gradients": [param.grad.clone() for param in net.parameters()],
                     "lr": lr,
+                    "value": C,
+                    "parameters": (p, beta),
+                    "rho": rho.detach().clone(),
+                    "details": d,
                 }
             opt.step()
         torch.save(

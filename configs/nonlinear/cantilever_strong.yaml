@@ -5,15 +5,19 @@ case:
   name: cantilever_nh
   physics: nh
   load: 0.0125
+  nh_solver:
+    max_newton: 40
+    adaptive_budgets:
+      max_subdivisions: 6
+      max_failed_attempts: 4
+      max_extra_increments: 32
 hgto:
   device: cuda:0
   steps: 180
   seed: 0
   max_updates: 1000
-  hardening: 0.03
   objective: complementary_work
   uniform_initial: true
-  backtracking: true
   architecture:
     n_freq: 64
     hidden_dim: 64
@@ -21,18 +25,44 @@ hgto:
     paper_K: 1
   learning_rate: 0.01
   final_learning_rate: 0.001
-  tail_half_life: 20.0
+  tail_half_life: 60
   minimum_learning_rate: 1.0e-05
+  beta_final: 32
+  beta_ramp_base: 8
+  load_steps: 12
+  adaptive_load: true
+  state_continuation: true
+  acceptance: state_solvable
+  backtracking: true
+  max_candidate_backtracks: 10
+  min_fixed_updates: 10
 oc:
+  device: cpu
+  tangent_backend: pypardiso
   objective: complementary_work
   continuation_updates: 180
   max_updates: 1000
   min_fixed_updates: 10
+  move: 0.2
+  beta_final: 32
+  beta_ramp_base: 8
+  p_initial: 1.0
+  p_final: 3.0
+  filter_radius: 1.0
+  rho_min: 0.001
+  load_steps: 12
+  adaptive_load: true
+  state_continuation: true
+  adaptive_move: true
+  move_shrink: 0.5
+  move_grow: 1.2
+  move_floor: 0.0001
   stopping_rule: physical
   change_tolerance: 0.005
   objective_tolerance: 0.001
   stable_steps: 5
+  objective_window: 10
   acceptance: fixed_parameter_descent
+  acceptance_relative_tolerance: 1.0e-08
+  max_candidate_backtracks: 10
   mixed_sign_update: reciprocal_linear
-  hardening: 0.03
-  tangent_backend: scipy

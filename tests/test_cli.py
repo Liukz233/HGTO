@@ -49,12 +49,77 @@ def test_cpu_command_saves_a_feasible_independently_evaluated_design(tmp_path):
     assert (output / "rho.npy").read_bytes() == before
 
 
-def test_dry_run_and_invalid_device_do_not_create_output(tmp_path):
+def test_dry_run_resolves_nonlinear_oc_cuda_and_rejects_conflicting_devices(tmp_path):
     output = tmp_path / "unused"
     config = ROOT / "configs/nonlinear/bridge.yaml"
     assert command("run", "--config", config, "--output", output, "--dry-run").returncode == 0
+    resolved = command(
+        "run",
+        "--config",
+        config,
+        "--output",
+        output,
+        "--method",
+        "oc",
+        "--device",
+        "cuda:0",
+        "--dry-run",
+    )
+    assert resolved.returncode == 0, resolved.stderr
+    settings = load_settings(config, method="oc", device="cuda:0")
+    assert settings["oc"]["device"] == "cuda:0"
+    assert settings["oc"]["tangent_backend"] == "cudss"
+    assert load_settings(config, method="oc")["oc"]["tangent_backend"] == "pypardiso"
+    cpu = load_settings(config, method="oc", device="cpu")["oc"]
+    assert (cpu["device"], cpu["tangent_backend"]) == ("cpu", "pypardiso")
     invalid = command(
-        "run", "--config", config, "--output", output, "--method", "oc", "--device", "cuda:0"
+        "run",
+        "--config",
+        config,
+        "--output",
+        output,
+        "--method",
+        "oc",
+        "--device",
+        "cuda:0",
+        "--state-device",
+        "cpu",
+        "--dry-run",
     )
     assert invalid.returncode != 0
     assert not output.exists()
+
+
+def test_nonlinear_adaptive_oc_cli_roundtrip(tmp_path):
+    import torch
+    import yaml
+
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA required for nonlinear OC command integration")
+    config = tmp_path / "adaptive.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "category": "nonlinear",
+                "method": "oc",
+                "case": {"name": "cantilever_nh", "physics": "nh", "load": 0.00125},
+                "oc": {
+                    "objective": "complementary_work",
+                    "continuation_updates": 0,
+                    "max_updates": 1,
+                    "load_steps": 2,
+                    "adaptive_load": True,
+                    "mixed_sign_update": "reciprocal_linear",
+                },
+            }
+        )
+    )
+    out = tmp_path / "nonlinear"
+    result = command("run", "--config", config, "--output", out, "--device", "cuda:0")
+    assert result.returncode == 0, result.stderr
+    protocol = json.loads((out / "protocol.json").read_text())
+    verified = json.loads((out / "verification/evaluation.json").read_text())
+    final = json.loads((out / "result.json").read_text())
+    assert protocol["state_device"] == "cuda:0"
+    assert verified["adaptive_load"] is True and verified["load_steps"] == 2
+    assert final["training_to_validation_relative_error"] < 1e-9

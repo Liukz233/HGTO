@@ -262,8 +262,8 @@ def run(tf, compatibility, out):
     SIGNED_OC_SOURCE=out/'signed_oc_executed.py'
     SIGNED_OC_SOURCE.write_bytes((PUBLIC/'src/hgto/nonlinear/signed_oc.py').read_bytes())
     data = dict(np.load(out/'input.npz'))
-    if config.get('family', 'cantilever') not in ('cantilever','bridge'):
-        raise ValueError('This nonlinear adaptation currently validates a rectangular cantilever only')
+    if config.get('family', 'cantilever') not in ('cantilever','bridge','l_bracket'):
+        raise ValueError('This nonlinear adaptation validates a rectangular cantilever, a bridge and an L-bracket only')
     gpus = tf.config.list_physical_devices('GPU')
     if os.environ.get('CUDA_VISIBLE_DEVICES', '') and not gpus:
         raise RuntimeError('GPU requested but TensorFlow found no GPU')
@@ -289,14 +289,39 @@ def run(tf, compatibility, out):
             factor=4.*x*(span-x)/span
             return tf.concat([factor,factor],axis=1)
         problem.bc=fixed_both
+    elif config.get('family')=='l_bracket':
+        # Linear L-bracket mapping: the upper edge (native y=0.5) of the vertical arm is fixed.
+        problem.bc = lambda x: tf.tile(.5 - x[1], [1, 2])
     else:
         problem.bc = functools.partial(fix_left, dim=2)
+    # Removed quadrant of the L-bracket: native hard zero-density constraint on the exact
+    # canonical cutout (as in the linear L-bracket mapping), applied after the density floor.
+    # It carries neither material volume nor energy; OC targets the exact L-domain area.
+    cutout = None
+    free_area = physical_area
+    center_measure = 1.
+    if config.get('family')=='l_bracket':
+        from ntopo.constraints import DensityConstraint, zero_densities_function
+        from ntopo.sdf import SDFRectangle
+        x0, y0, x1, y1 = [float(value) for value in config['removed_region']]
+        low = coords.min(0)
+        rectangle = [np.float32((x0-low[0])*coordinate_scale), np.float32((x1-low[0])*coordinate_scale),
+                     np.float32((y0-low[1])*coordinate_scale), np.float32((y1-low[1])*coordinate_scale)]
+        cutout = DensityConstraint(SDFRectangle(rectangle), zero_densities_function)
+        free_area = physical_area - (x1-x0)*(y1-y0)
+        if not np.isclose(free_area, float(config['mesh_area']), rtol=1e-12):
+            raise ValueError('Neural L-domain area differs from the canonical mesh')
+        if not np.all(cutout.sdf.eval_distance(tf.constant(centers)).numpy() > 0):
+            raise ValueError('A canonical cell centroid lies in the neural cutout')
+        # Snapshot energies are sampled at the canonical cell centers, which cover the L-domain only.
+        center_measure = free_area / physical_area
     # The upstream force object takes a mean, hence the point-count factor.
     # Forces themselves retain canonical physical units, with no load scaling.
     problem.forcing = DiracForce(mapped[nodes].tolist(), (len(nodes)*forces[nodes]).tolist())
     problem.init()
     problem.domain_volume = physical_area
-    problem.free_volume = physical_area
+    problem.free_volume = free_area
+    problem.constraint_volume = 0.
     factors = np.asarray(problem.bc([tf.constant(mapped[:, :1]), tf.constant(mapped[:, 1:])])).reshape(-1)
     assert np.array_equal(np.flatnonzero(factors == 0.), np.sort(data['fixed']))
     probe = np.random.default_rng(440).normal(size=(len(nodes), 2)).astype(np.float32)
@@ -315,10 +340,15 @@ def run(tf, compatibility, out):
                                     emin_fraction=float(config.get('emin_fraction', 1e-6)),
                                     gamma_mode=config.get('gamma_mode','heaviside'),
                                     beta0=float(config.get('beta0',500.)),eta0=float(config.get('eta0',.01)))
+            if cutout is not None:
+                # Only the removed region has exactly zero density (the floor is rho_min elsewhere).
+                return tf.where(densities > 0., energy[:, None], tf.zeros_like(densities))
             return energy[:, None]
 
     class DensityFloor:
-        def apply(self, inputs, densities): return rho_min + (1.-rho_min)*densities
+        def apply(self, inputs, densities):
+            floored = rho_min + (1.-rho_min)*densities
+            return floored if cutout is None else cutout.apply(inputs, floored)
 
     problem.energy_model = WangEnergy()
     problem.plot_displacement = lambda *a, **k: None
@@ -350,7 +380,7 @@ def run(tf, compatibility, out):
         np.save(out/'snapshots'/f'rho_{iteration:04d}.npy', rho)
         energy, force_loss = compute_elasticity_energies(problem, disp_model, density_model,
                                                        tf.constant(centers), training=False)
-        internal = float(energy.numpy().item()); external = -float(force_loss.numpy().item())
+        internal = float(energy.numpy().item())*center_measure; external = -float(force_loss.numpy().item())
         row = dict(iteration=iteration, wall_s_train=time.perf_counter()-train_started,
                    mean_density=float(rho.mean()), neural_internal_energy=internal,
                    neural_terminal_work=external, neural_J=2.*(external-internal),
@@ -420,7 +450,10 @@ def run(tf, compatibility, out):
         tensorflow_version=tf.__version__, devices=[gpu.name for gpu in gpus],
         mapping=dict(coordinate_scale=coordinate_scale, displacement_scale=1., force_scale=1.,
                      physical_area=physical_area, force_point_mean_compensation=len(nodes),
-                     boundary_zero_set_verified=True, force_work_verified=True),
+                     boundary_zero_set_verified=True, force_work_verified=True,
+                     **(dict(removed_region=config['removed_region'], free_area=free_area,
+                             domain_mapping='Native hard zero-density constraint on the exact canonical cutout, after the density floor; no energy in the excluded domain; OC targets the exact L-domain area')
+                        if cutout is not None else {})),
         material=dict(young=1., nu=.3, penalty=config.get('penalty', 3.), emin_fraction=config.get('emin_fraction', 1e-6),
                       gamma=config.get('gamma_mode','heaviside'), beta0=config.get('beta0',500.), eta0=config.get('eta0',.01), rho_min=rho_min,
                       calibration='2D compressible NH with small-strain plane-stress-matched Lame constants'),

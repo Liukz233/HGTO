@@ -1,4 +1,4 @@
-name: nonlinear/connection_plastic
+name: additional/connection_plastic
 category: nonlinear
 method: hgto
 case:

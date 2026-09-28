@@ -1,4 +1,4 @@
-name: nonlinear/connection_elastic
+name: additional/connection_elastic
 category: nonlinear
 method: hgto
 case:
