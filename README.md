@@ -6,6 +6,8 @@ Kangzheng Liu · Uday Kumar Punna · Leixin Ma
 
 **Paper:** [arXiv:2609.15001](https://arxiv.org/abs/2609.15001)
 
+**Archived code:** [doi:10.5281/zenodo.23028806](https://doi.org/10.5281/zenodo.23028806) (all versions; v1.0.0: [10.5281/zenodo.23028807](https://doi.org/10.5281/zenodo.23028807))
+
 HGTO couples a graph neural network for material density with finite-element-consistent hypergraph mechanics. Each design is optimized from a uniform density field without labeled topology data. The same formulation supports planar and spatial elasticity, irregular domains on quadrilateral and triangular meshes, and finite deformation.
 
 ![HGTO topology optimization: cantilever, half-MBB beam, and inclined load](docs/assets/linear_designs.png)
@@ -112,6 +114,8 @@ The default suite uses small problems. CUDA/cuDSS and PARDISO checks run when th
 Please cite the accompanying manuscript:
 
 > Kangzheng Liu, Uday Kumar Punna, and Leixin Ma. *HGTO: A Unified Graph-Based Physics-Informed Formulation for Structural Topology Optimization*. arXiv:2609.15001, 2026. [Paper](https://arxiv.org/abs/2609.15001).
+
+The code of each release is archived at Zenodo, [doi:10.5281/zenodo.23028806](https://doi.org/10.5281/zenodo.23028806).
 
 ```bibtex
 @misc{liu2026hgto,

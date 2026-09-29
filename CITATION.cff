@@ -4,6 +4,7 @@ type: software
 title: "HGTO: A Unified Graph-Based Physics-Informed Formulation for Structural Topology Optimization"
 version: 1.0.0
 date-released: 2026-09-29
+doi: 10.5281/zenodo.23028806
 license: MIT
 repository-code: "https://github.com/Liukz233/HGTO"
 authors:
